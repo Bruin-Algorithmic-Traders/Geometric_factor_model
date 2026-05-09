@@ -43,3 +43,6 @@ cython_debug/
 # Logs and generated outputs
 *.log
 results/
+
+#Data
+monthly/
