@@ -1,0 +1,45 @@
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments and local Python settings
+.python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Test and coverage outputs
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker caches
+.mypy_cache/
+.dmypy.json
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# macOS files
+.DS_Store
+
+# Logs and generated outputs
+*.log
+results/

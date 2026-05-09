@@ -10,9 +10,9 @@ import os
 # ---------------------------------------------------------------------------
 # Data paths
 # ---------------------------------------------------------------------------
-CHARS_DIR = "/Users/ryanc/Documents/Firm_Characteristics/characteristics_by_month"
-RETURNS_FILE = "/Users/ryanc/Documents/Firm_Characteristics/monthly_1990_to_2018.csv"
-OUTPUT_DIR = "/Users/ryanc/Documents/BAT/Geometric_factor_model/results"
+CHARS_DIR = "monthly/characteristics_by_month"
+RETURNS_FILE = "monthly/monthly_1990_to_2018.csv"
+OUTPUT_DIR = "results"
 
 # Columns that are NOT firm characteristics (excluded from the embedding)
 NON_CHAR_COLS = ["permno", "DATE", "sic2"]
