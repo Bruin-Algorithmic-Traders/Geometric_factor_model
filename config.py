@@ -10,8 +10,9 @@ import os
 # ---------------------------------------------------------------------------
 # Data paths
 # ---------------------------------------------------------------------------
-CHARS_DIR = "monthly/characteristics_by_month"
-RETURNS_FILE = "monthly/monthly_1990_to_2018.csv"
+CHARS_DIR = "data/raw/characteristics_by_month"
+RETURNS_FILE = "data/raw/monthly_1990_to_2018.csv"
+PROCESSED_DIR = "data/processed"
 OUTPUT_DIR = "results"
 
 # Columns that are NOT firm characteristics (excluded from the embedding)

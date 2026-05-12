@@ -45,4 +45,4 @@ cython_debug/
 results/
 
 #Data
-monthly/
+data/
