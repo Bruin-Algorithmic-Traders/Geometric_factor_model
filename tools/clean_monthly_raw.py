@@ -18,12 +18,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import sys
+
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config
 
 
 ROOT = Path(__file__).resolve().parent.parent
-RAW_CHARS_DIR = ROOT / "data" / "raw" / "characteristics_by_month"
-CLEANED_CHARS_DIR = ROOT / "data" / "processed" / "characteristics_by_month"
-RESULTS_DIR = ROOT / "results"
+RAW_CHARS_DIR = ROOT / config.RAW_CHARS_DIR
+CLEANED_CHARS_DIR = ROOT / config.CHARS_DIR
+RESULTS_DIR = ROOT / config.OUTPUT_DIR
 
 
 def _get_characteristics_files() -> list[Path]:

@@ -35,14 +35,56 @@ from config import (
 # Covariance estimation helpers
 # ---------------------------------------------------------------------------
 
+def _impute_partial_history(R: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fill partial return-history gaps using a simple market-model regression.
+
+    For each stock with some observed history, estimate:
+
+        r_i,t = alpha_i + beta_i * r_m,t + eps_i,t
+
+    on the months where r_i,t is observed, where r_m,t is the equal-weighted
+    cross-sectional mean return in the current lookback window. Missing months
+    are then filled with the fitted value. If a stock has too few observations
+    for a stable regression, fall back to its own sample mean.
+    """
+    if R.empty:
+        return R
+
+    market = R.mean(axis=1, skipna=True)
+    R_filled = R.copy()
+
+    for col in R.columns:
+        s = R[col]
+        missing = s.isna()
+        if not missing.any():
+            continue
+
+        observed = s.notna() & market.notna()
+        if observed.sum() >= 6 and market.loc[observed].std() > 0:
+            x = market.loc[observed].values
+            y = s.loc[observed].values
+            beta, alpha = np.polyfit(x, y, deg=1)
+            preds = alpha + beta * market.loc[missing].values
+            fill_vals = pd.Series(preds, index=s.index[missing])
+        else:
+            stock_mean = s.loc[observed].mean()
+            if not np.isfinite(stock_mean):
+                stock_mean = 0.0
+            fill_vals = pd.Series(stock_mean, index=s.index[missing])
+
+        R_filled.loc[missing, col] = fill_vals
+
+    return R_filled.fillna(0.0)
+
 def estimate_covariance(
     returns_panel: pd.DataFrame,
     permnos: list,
     method: str = "ledoit_wolf",
     min_obs: int = 24,
-) -> np.ndarray:
+) -> tuple[np.ndarray, list]:
     """
-    Estimate the N×N covariance matrix from a panel of historical returns.
+    Estimate a covariance matrix from a panel of historical returns.
 
     Parameters
     ----------
@@ -53,41 +95,49 @@ def estimate_covariance(
 
     Returns
     -------
-    Sigma : ndarray (N × N)
+    Sigma : ndarray (K × K), where K is the number of names with at least one
+        return observation in the lookback window
+    active_permnos : list of permnos corresponding to Sigma
     """
-    valid = [p for p in permnos if p in returns_panel.columns]
-    R = returns_panel[valid].dropna(how="all")
+    R = returns_panel.reindex(columns=permnos).dropna(how="all")
 
-    N = len(permnos)
+    # Some names can appear in the current characteristic universe before they
+    # have any usable return history in the covariance lookback window.
+    has_history = R.notna().any(axis=0)
+    active_permnos = has_history[has_history].index.tolist()
+    R_active = R[active_permnos]
 
-    if len(R) < min_obs or len(valid) < 2:
+    fallback_scale = R_active.stack().std()
+    if not np.isfinite(fallback_scale) or fallback_scale <= 0:
+        fallback_scale = R.stack().std()
+    if not np.isfinite(fallback_scale) or fallback_scale <= 0:
+        fallback_scale = 0.05
+
+    if len(R) < min_obs or len(active_permnos) < 2:
         # Fall back to diagonal with sample variances
-        vols = R.std().reindex(permnos).fillna(R.std().mean())
-        return np.diag(vols.values ** 2)
+        vols = R_active.std().reindex(active_permnos).fillna(fallback_scale)
+        return np.diag(vols.values ** 2), active_permnos
 
-    # Reindex to the requested permno list, fill missing stocks with mean
-    R = R.reindex(columns=permnos)
-    col_means = R.mean()
-    R = R.fillna(col_means)
+    R_active = _impute_partial_history(R_active)
 
-    X = R.values
+    X = R_active.values
     if method == "ledoit_wolf":
         lw = LedoitWolf(assume_centered=False)
         lw.fit(X)
-        Sigma = lw.covariance_
+        Sigma_active = lw.covariance_
     elif method == "sample":
-        Sigma = np.cov(X.T)
+        Sigma_active = np.cov(X.T)
     elif method == "diagonal":
-        Sigma = np.diag(np.var(X, axis=0))
+        Sigma_active = np.diag(np.var(X, axis=0))
     else:
         raise ValueError(f"Unknown covariance method: {method}")
 
     # Ensure positive definiteness with a small ridge
-    min_eig = np.linalg.eigvalsh(Sigma).min()
+    min_eig = np.linalg.eigvalsh(Sigma_active).min()
     if min_eig < 1e-8:
-        Sigma += (1e-6 - min_eig) * np.eye(N)
+        Sigma_active += (1e-6 - min_eig) * np.eye(len(active_permnos))
 
-    return Sigma
+    return Sigma_active, active_permnos
 
 
 # ---------------------------------------------------------------------------

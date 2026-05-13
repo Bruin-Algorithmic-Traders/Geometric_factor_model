@@ -10,7 +10,8 @@ import os
 # ---------------------------------------------------------------------------
 # Data paths
 # ---------------------------------------------------------------------------
-CHARS_DIR = "data/raw/characteristics_by_month"
+RAW_CHARS_DIR = "data/raw/characteristics_by_month"
+CHARS_DIR = "data/processed/characteristics_by_month"  # Processed data used for analysis
 RETURNS_FILE = "data/raw/monthly_1990_to_2018.csv"
 PROCESSED_DIR = "data/processed"
 OUTPUT_DIR = "results"

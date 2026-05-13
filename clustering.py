@@ -318,13 +318,28 @@ def run_hdbscan(
         min_samples=min_samples,
         leaf_size=leaf_size,
         cluster_selection_method="eom",
-        prediction_data=True,
+        prediction_data=False,
     )
     labels = clusterer.fit_predict(D)
     soft_probs = clusterer.probabilities_
 
     n_clusters = len(set(labels) - {-1})
     n_noise    = (labels == -1).sum()
+    cluster_sizes = []
+    if n_clusters > 0:
+        cluster_sizes = sorted(
+            [int((labels == c).sum()) for c in sorted(set(labels) - {-1})],
+            reverse=True,
+        )
+
+    # Attach summary diagnostics so callers can inspect HDBSCAN similarly to
+    # how SphericalKMeans exposes labels_ and inertia_.
+    clusterer.labels_ = labels
+    clusterer.soft_probs_ = soft_probs
+    clusterer.n_clusters_ = n_clusters
+    clusterer.n_noise_ = int(n_noise)
+    clusterer.noise_fraction_ = float(n_noise / len(labels)) if len(labels) else 0.0
+    clusterer.cluster_sizes_ = cluster_sizes
 
     if n_clusters == 0:
         warnings.warn(

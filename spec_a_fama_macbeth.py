@@ -28,6 +28,7 @@ The script prints a performance summary and saves:
     results/spec_a_returns.csv
     results/spec_a_performance.png
     results/spec_a_lambda_ts.csv    ← time-series of λ̂_{m,t} per firm type
+    results/spec_a_clustering_results.pkl.gz  ← all soft membership matrices Π_{t-1}
     results/spec_a_metrics.csv
 """
 from __future__ import annotations
@@ -182,9 +183,9 @@ def run_spec_a(
     leverage_hist     = []
     lambda_ts         = []          # full λ time series for analysis
     avg_Pi_ts         = []          # average Π weights over time
+    clustering_results = {}         # store all Pi_df for each date
 
     w_prev: np.ndarray | None = None
-    lambda_cols: list | None  = None
 
     if verbose:
         print(f"\nSpec A  |  method={method}  M={n_clusters}  τ={tau}")
@@ -234,12 +235,26 @@ def run_spec_a(
             warnings.warn(f"  [{chars_date}] clustering failed: {e} – skipping")
             continue
 
+        if verbose and method == "hdbscan":
+            n_found = getattr(model, "n_clusters_", Pi_df.shape[1])
+            n_noise = getattr(model, "n_noise_", 0)
+            noise_frac = getattr(model, "noise_fraction_", 0.0)
+            cluster_sizes = getattr(model, "cluster_sizes_", [])
+            largest = max(cluster_sizes) if cluster_sizes else 0
+            median_size = int(np.median(cluster_sizes)) if cluster_sizes else 0
+            print(
+                f"  [{chars_date}] HDBSCAN clusters={n_found} "
+                f"noise={n_noise} ({noise_frac:.1%}) "
+                f"largest={largest} median={median_size}"
+            )
+
         M = Pi_df.shape[1]
-        if lambda_cols is None:
-            lambda_cols = Pi_df.columns.tolist()
 
         # Track average Π (for the cluster-weights-over-time plot)
-        avg_Pi_ts.append((chars_date, Pi_df.mean(axis=0).values))
+        avg_Pi_ts.append(Pi_df.mean(axis=0).rename(chars_date))
+
+        # Store full clustering results for later analysis
+        clustering_results[chars_date] = Pi_df
 
         # ----------------------------------------------------------------
         # Step 3: Cross-sectional OLS for λ_{m,t}  using returns at ret_date
@@ -266,8 +281,9 @@ def run_spec_a(
             continue
 
         alpha_history.append(alpha_t)
-        lambda_history.append(lambda_t)
-        lambda_ts.append((ret_date,) + tuple(lambda_t))
+        lambda_series = pd.Series(lambda_t, index=Pi_df.columns, name=ret_date)
+        lambda_history.append(lambda_series)
+        lambda_ts.append(lambda_series)
 
         # ----------------------------------------------------------------
         # Step 4: Need warmup months before we start trading
@@ -276,7 +292,7 @@ def run_spec_a(
             continue
 
         # Rolling λ̂ (time-series average of past estimates)
-        lambda_hat = np.nanmean(np.stack(lambda_history), axis=0)   # (M,)
+        lambda_hat = pd.concat(list(lambda_history), axis=1).T.mean(axis=0, skipna=True)
         alpha_hat  = np.nanmean(list(alpha_history))
 
         # ----------------------------------------------------------------
@@ -285,7 +301,8 @@ def run_spec_a(
         # and the rolling λ̂ just estimated through t.
         # We re-use Pi_df (which IS at chars_date = t).
         # ----------------------------------------------------------------
-        mu_hat = alpha_hat + Pi_df.values @ lambda_hat       # (N,)
+        Pi_aligned = Pi_df.reindex(columns=lambda_hat.index, fill_value=0.0)
+        mu_hat = alpha_hat + Pi_aligned.values @ lambda_hat.values
         mu_hat_series = pd.Series(mu_hat, index=Pi_df.index)
 
         # ----------------------------------------------------------------
@@ -304,7 +321,7 @@ def run_spec_a(
             available_hist = [d for d in hist_dates if d in ret_wide.index]
             ret_hist = ret_wide.loc[available_hist, :]
 
-            Sigma = estimate_covariance(
+            Sigma, active_permnos = estimate_covariance(
                 ret_hist,
                 permnos=permnos_t.tolist(),
                 method=cov_method,
@@ -316,18 +333,25 @@ def run_spec_a(
                 w_prev = np.zeros(N)
 
             mu_vec = mu_hat_series.reindex(permnos_t).fillna(0.0).values
+            active_mask = np.isin(permnos_t, np.array(active_permnos))
+            active_idx = np.flatnonzero(active_mask)
 
             try:
-                w_new = optimize_portfolio_a(
-                    mu    = mu_vec,
-                    Sigma = Sigma,
-                    w_prev = w_prev,
-                    gamma  = config.SPEC_A_GAMMA,
-                    kappa  = config.SPEC_A_KAPPA,
-                    max_lev = config.SPEC_A_MAX_LEVERAGE,
-                    w_max  = config.SPEC_A_MAX_SINGLE,
-                    dollar_neutral = config.SPEC_A_DOLLAR_NEUTRAL,
-                )
+                if len(active_idx) < 2:
+                    w_new = np.zeros(N)
+                else:
+                    w_active = optimize_portfolio_a(
+                        mu    = mu_vec[active_idx],
+                        Sigma = Sigma,
+                        w_prev = w_prev[active_idx],
+                        gamma  = config.SPEC_A_GAMMA,
+                        kappa  = config.SPEC_A_KAPPA,
+                        max_lev = config.SPEC_A_MAX_LEVERAGE,
+                        w_max  = config.SPEC_A_MAX_SINGLE,
+                        dollar_neutral = config.SPEC_A_DOLLAR_NEUTRAL,
+                    )
+                    w_new = np.zeros(N)
+                    w_new[active_idx] = w_active
             except Exception as e:
                 warnings.warn(f"[{chars_date}] optimizer failed: {e}. Using rank LS.")
                 w_new = rank_longshort(mu_vec)
@@ -413,19 +437,21 @@ def run_spec_a(
 
     # Lambda time-series CSV
     if lambda_ts:
-        lts = pd.DataFrame(
-            lambda_ts,
-            columns=["DATE"] + (lambda_cols or [f"type_{m}" for m in range(M)])
-        ).set_index("DATE")
+        lts = pd.DataFrame([{"DATE": s.name, **s.to_dict()} for s in lambda_ts]).set_index("DATE")
         lts.to_csv(os.path.join(config.OUTPUT_DIR, "spec_a_lambda_ts.csv"))
+
+    # Save all clustering results to compressed pickle
+    if clustering_results:
+        import pickle
+        import gzip
+        cluster_path = os.path.join(config.OUTPUT_DIR, "spec_a_clustering_results.pkl.gz")
+        with gzip.open(cluster_path, 'wb') as f:
+            pickle.dump(clustering_results, f)
+        print(f"  Clustering results → {cluster_path}")
 
     # Cluster weights over time
     if avg_Pi_ts:
-        cols = lambda_cols or [f"type_{m}" for m in range(M)]
-        pi_df = pd.DataFrame(
-            [(d, *v) for d, v in avg_Pi_ts],
-            columns=["DATE"] + cols[:len(avg_Pi_ts[0][1])]
-        ).set_index("DATE")
+        pi_df = pd.DataFrame([{"DATE": s.name, **s.to_dict()} for s in avg_Pi_ts]).set_index("DATE")
         plot_cluster_weights_over_time(
             pi_df,
             title=f"Avg Firm-Type Membership Over Time ({method})",

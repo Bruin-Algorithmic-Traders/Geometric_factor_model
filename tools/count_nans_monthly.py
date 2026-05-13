@@ -1,21 +1,25 @@
 """Count NaN values in monthly characteristic files.
 
-This script scans all files under the configured monthly characteristics
+This script scans all files under the processed monthly characteristics
 folder, computes NaN counts by month and column, saves the result to the
-processed data folder, and prints the total number of missing values.
+results folder, and prints the total number of missing values.
 """
 
 import os
 from pathlib import Path
+import sys
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Editable paths for the processed monthly characteristic files and the
-# output location for NaN summaries.
-PROCESSED_CHARS_DIR = ROOT / "data" / "processed" / "characteristics_by_month"
-OUTPUT_DIR = ROOT / "results"
+# Add parent directory to path to import config
+sys.path.insert(0, str(ROOT))
+import config
+
+# Use processed characteristics from config for analysis
+PROCESSED_CHARS_DIR = ROOT / config.CHARS_DIR
+OUTPUT_DIR = ROOT / config.OUTPUT_DIR
 
 
 def _find_characteristic_files() -> list[Path]:

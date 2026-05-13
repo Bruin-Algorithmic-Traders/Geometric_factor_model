@@ -2,8 +2,7 @@ we can edit this later just adding a few improvement ideas/potential issues rn:
 
 1. change to parquet files / use pyarrow
 2. use polars
-3. check labelling in spherical k means
-4. save clustering results somewhere
+3. we're not getting enough clusters in hdbscan??
 
 
 current data cleaning workflow (fix later this isn't ideal):

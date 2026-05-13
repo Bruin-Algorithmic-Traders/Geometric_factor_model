@@ -32,6 +32,7 @@ Saves:
     results/spec_b_returns.csv
     results/spec_b_performance.png
     results/spec_b_factor_heatmap.png
+    results/spec_b_clustering_results.pkl.gz  ← all soft membership matrices Π_{t-1}
     results/spec_b_betas.csv
     results/spec_b_alphas.csv
     results/spec_b_metrics.csv
@@ -230,6 +231,7 @@ def run_spec_b(
     leverage_hist    = []
     factor_returns_all: dict = {}     # DATE → {type_0: f0, type_1: f1, …}
     avg_Pi_ts: list          = []
+    clustering_results = {}           # store all Pi_df for each date
 
     if verbose:
         print(f"\nSpec B  |  method={method}  M={n_clusters}  τ={tau}  timing={use_factor_timing}")
@@ -278,6 +280,9 @@ def run_spec_b(
             lambda_cols = Pi_df.columns.tolist()
 
         avg_Pi_ts.append((chars_date, Pi_df.mean(axis=0).values))
+
+        # Store full clustering results for later analysis
+        clustering_results[chars_date] = Pi_df
 
         # ── Step 3: Build factor portfolios W_{t−1}  (Equations 14–15) ───
         W_df = build_factor_portfolios(Pi_df)
@@ -413,6 +418,16 @@ def run_spec_b(
             print(f"\nTime-series regression:")
             print(f"  Mean |α|: {alpha_s.abs().mean():.4f}")
             print(f"  Mean R²:  {r2_s.mean():.3f}")
+
+    # Save all clustering results to compressed pickle
+    if clustering_results:
+        import pickle
+        import gzip
+        cluster_path = os.path.join(config.OUTPUT_DIR, "spec_b_clustering_results.pkl.gz")
+        with gzip.open(cluster_path, 'wb') as f:
+            pickle.dump(clustering_results, f)
+        if verbose:
+            print(f"  Clustering results → {cluster_path}")
 
     # Cluster weight chart
     if avg_Pi_ts:
