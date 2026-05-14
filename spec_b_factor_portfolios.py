@@ -50,7 +50,7 @@ import config
 from data_loader   import (get_date_pairs, load_characteristics,
                             load_market_cap, load_returns_panel)
 from normalization import preprocess
-from clustering    import cluster_and_weight
+from clustering    import cluster_and_weight, align_cluster_labels
 from portfolio_optimizer import (optimize_portfolio_b, factor_covariance)
 from backtesting   import (BacktestResult, compute_tc, plot_performance,
                             plot_factor_returns, plot_cluster_weights_over_time,
@@ -139,18 +139,21 @@ def time_series_regression(
     valid = R.columns[R.notna().sum() >= min_obs]
     R = R[valid]
 
-    X = np.column_stack([np.ones(len(F)), F.values])   # T × (M+1)
-
     alphas_dict, betas_dict, r2_dict = {}, {}, {}
     for perm in R.columns:
-        y = R[perm].fillna(0.0).values
+        y = R[perm]
+        mask = y.notna() & F.notna().all(axis=1)
+        if mask.sum() < min_obs:
+            continue
+        X = np.column_stack([np.ones(mask.sum()), F.loc[mask].values])
+        yv = y.loc[mask].values
         try:
-            theta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+            theta, _, _, _ = np.linalg.lstsq(X, yv, rcond=None)
         except np.linalg.LinAlgError:
             continue
         y_hat = X @ theta
-        ss_res = np.sum((y - y_hat) ** 2)
-        ss_tot = np.sum((y - y.mean()) ** 2)
+        ss_res = np.sum((yv - y_hat) ** 2)
+        ss_tot = np.sum((yv - yv.mean()) ** 2)
         r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
 
         alphas_dict[perm] = theta[0]
@@ -187,7 +190,8 @@ def run_spec_b(
     method            : "spherical_kmeans" or "hdbscan"
     n_clusters        : M (SKM only; HDBSCAN chooses M automatically)
     tau               : temperature for soft membership weights
-    universe_size     : keep top-N stocks by market cap each month
+    universe_size     : keep top-N stocks by market cap each month;
+                        use None or 0 for full universe
     start_date        : integer date (YYYYMMDD) to begin sampling
     use_factor_timing : True → optimise factor weights a_t (Eq. 18);
                         False → equal-weight all factors
@@ -198,7 +202,10 @@ def run_spec_b(
     method        = method        or config.CLUSTER_METHOD
     n_clusters    = n_clusters    or config.N_CLUSTERS
     tau           = tau           or config.TEMPERATURE
-    universe_size = universe_size or config.SPEC_A_UNIVERSE_SIZE
+    if universe_size is None:
+        universe_size = config.SPEC_A_UNIVERSE_SIZE
+    if universe_size is not None and universe_size <= 0:
+        universe_size = None
     rolling_window = rolling_window or config.SPEC_B_ROLLING_WINDOW
     warmup        = config.WARMUP_MONTHS
 
@@ -219,9 +226,10 @@ def run_spec_b(
     # ── Rolling buffers ──────────────────────────────────────────────────
     # f_buffer holds past factor returns {f_1,...,f_{k-1}} (before current f_k)
     # a_prev is a_{t-1}: factor timing weights estimated in the PREVIOUS iteration
-    f_buffer: deque    = deque(maxlen=rolling_window)
-    a_prev: np.ndarray | None = None
-    lambda_cols: list  | None = None
+    f_buffer: deque = deque(maxlen=rolling_window)
+    a_prev: pd.Series | None = None
+    prev_prototypes: pd.DataFrame | None = None
+    next_type_id = 0
 
     # ── Storage ──────────────────────────────────────────────────────────
     strategy_returns = []
@@ -275,11 +283,17 @@ def run_spec_b(
             warnings.warn(f"  [{chars_date}] clustering failed: {e} – skipping")
             continue
 
-        M = Pi_df.shape[1]
-        if lambda_cols is None:
-            lambda_cols = Pi_df.columns.tolist()
+        Pi_df, curr_prototypes, next_type_id, _ = align_cluster_labels(
+            Pi_df,
+            U_arr,
+            prev_prototypes=prev_prototypes,
+            next_type_id=next_type_id,
+        )
+        prev_prototypes = curr_prototypes
 
-        avg_Pi_ts.append((chars_date, Pi_df.mean(axis=0).values))
+        M = Pi_df.shape[1]
+
+        avg_Pi_ts.append(Pi_df.mean(axis=0).rename(chars_date))
 
         # Store full clustering results for later analysis
         clustering_results[chars_date] = Pi_df
@@ -293,55 +307,69 @@ def run_spec_b(
         except KeyError:
             continue
 
-        r_aligned = r_t.reindex(permnos_t).fillna(0.0).values
-        f_t = W_df.values.T @ r_aligned              # (M,)
+        common = W_df.index.intersection(r_t.index)
+        if len(common) == 0:
+            continue
 
-        factor_returns_all[ret_date] = dict(zip(lambda_cols, f_t.tolist()))
+        W_realized = W_df.loc[common]
+        r_aligned = r_t.loc[common].values
+        f_t = pd.Series(W_realized.values.T @ r_aligned, index=W_realized.columns)
+        factor_returns_all[ret_date] = f_t.to_dict()
 
         # ── Step 5: Estimate a_{t−1} from past {f₁,…,f_{t−1}} ───────────
         #    f_buffer currently holds only PAST factor returns (before f_t).
         #    This ensures a_{t−1} has NO access to f_t  →  no look-ahead.
         if len(f_buffer) >= warmup:
-            F_hist = np.stack(f_buffer)              # (T_roll × M)
+            F_hist_df = pd.DataFrame(list(f_buffer)).fillna(0.0)
+            curr_cols = Pi_df.columns.tolist()
+            F_hist = F_hist_df.reindex(columns=curr_cols, fill_value=0.0).values
 
             if use_factor_timing:
                 mu_f    = F_hist.mean(axis=0)
                 Sigma_f = factor_covariance(F_hist, method="ledoit_wolf")
 
-                if a_prev is None or len(a_prev) != M:
-                    a_prev = np.zeros(M)
+                if a_prev is None:
+                    a_prev = pd.Series(0.0, index=curr_cols)
+                else:
+                    a_prev = a_prev.reindex(curr_cols).fillna(0.0)
 
                 try:
-                    a_curr = optimize_portfolio_b(
+                    a_curr_arr = optimize_portfolio_b(
                         mu_f    = mu_f,
                         Sigma_f = Sigma_f,
-                        a_prev  = a_prev,
+                        a_prev  = a_prev.values,
                         gamma_f = config.SPEC_B_GAMMA_F,
                         kappa_f = config.SPEC_B_KAPPA_F,
                         max_la  = config.SPEC_B_MAX_LA,
                         a_max   = config.SPEC_B_MAX_SINGLE_F,
                     )
+                    a_curr = pd.Series(a_curr_arr, index=curr_cols)
                 except Exception as e:
                     warnings.warn(f"[{chars_date}] factor timing failed: {e}. Equal-weight.")
-                    a_curr = np.ones(M) / M
+                    a_curr = pd.Series(np.ones(M) / M, index=curr_cols)
             else:
                 # Equal-weight long across all factors (no timing optimisation)
-                a_curr = np.ones(M) / M
+                a_curr = pd.Series(np.ones(M) / M, index=Pi_df.columns)
 
             # ── Step 6: REALISE R_t^(B) = a_{t−1}ᵀ f_t ──────────────────
-            if a_prev is not None and len(a_prev) == M:
-                gross_ret = float(a_prev @ f_t)
+            if a_prev is not None:
+                a_prev_curr = a_prev.reindex(f_t.index).fillna(0.0)
+                gross_ret = float(a_prev_curr.values @ f_t.values)
 
                 # Transaction cost proxy: turnover in factor weights
-                tc = compute_tc(a_curr, a_prev, tc_bps=config.TC_BPS / 10.0)
+                tc = compute_tc(
+                    a_curr.values,
+                    a_prev_curr.reindex(a_curr.index).fillna(0.0).values,
+                    tc_bps=config.TC_BPS / 10.0,
+                )
                 net_ret = gross_ret - tc
 
                 strategy_returns.append(net_ret)
                 dates_out.append(ret_date)
 
-                to  = float(np.sum(np.abs(a_curr - a_prev))) / 2.0
-                lev = float(np.sum(np.abs(a_curr)))
-                weights_hist.append((ret_date, a_curr.copy()))
+                to  = float(np.sum(np.abs(a_curr.values - a_prev_curr.reindex(a_curr.index).fillna(0.0).values))) / 2.0
+                lev = float(np.sum(np.abs(a_curr.values)))
+                weights_hist.append((ret_date, a_curr.values.copy()))
                 turnover_hist.append((ret_date, to))
                 leverage_hist.append((ret_date, lev))
 
@@ -349,12 +377,14 @@ def run_spec_b(
                     print(f"  t={ret_date}  ret={net_ret:+.4f}  "
                           f"a_lev={lev:.2f}  to={to:.4f}")
 
-            a_prev = a_curr
+            a_prev = a_curr.copy()
 
         else:
             # Still in warmup: track but don't trade
-            if a_prev is None or (a_prev is not None and len(a_prev) != M):
-                a_prev = np.zeros(M)
+            if a_prev is None:
+                a_prev = pd.Series(0.0, index=Pi_df.columns)
+            else:
+                a_prev = a_prev.reindex(Pi_df.columns).fillna(0.0)
 
         # ── Step 7: Append f_t to buffer (for next period's estimation) ──
         f_buffer.append(f_t)
@@ -431,14 +461,7 @@ def run_spec_b(
 
     # Cluster weight chart
     if avg_Pi_ts:
-        cols = lambda_cols or [f"type_{m}" for m in range(M)]
-        pi_vals = np.array([v for _, v in avg_Pi_ts])
-        pi_df = pd.DataFrame(
-            pi_vals,
-            index=[d for d, _ in avg_Pi_ts],
-            columns=cols[:pi_vals.shape[1]]
-        )
-        pi_df.index.name = "DATE"
+        pi_df = pd.DataFrame([{"DATE": s.name, **s.to_dict()} for s in avg_Pi_ts]).set_index("DATE")
         plot_cluster_weights_over_time(
             pi_df,
             title=f"Avg Firm-Type Membership ({method})",
@@ -486,7 +509,12 @@ def _parse_args():
                    default=config.CLUSTER_METHOD)
     p.add_argument("--n_clusters", type=int, default=config.N_CLUSTERS)
     p.add_argument("--tau",        type=float, default=config.TEMPERATURE)
-    p.add_argument("--universe",   type=int, default=config.SPEC_A_UNIVERSE_SIZE)
+    p.add_argument(
+        "--universe",
+        type=int,
+        default=config.SPEC_A_UNIVERSE_SIZE,
+        help="Max stocks by market cap per month; use 0 for full universe",
+    )
     p.add_argument("--start",      type=int, default=None,
                    help="Start chars_date as YYYYMMDD integer")
     p.add_argument("--no_timing",  action="store_true",

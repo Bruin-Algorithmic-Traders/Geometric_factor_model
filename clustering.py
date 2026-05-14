@@ -20,6 +20,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import normalize
+from scipy.optimize import linear_sum_assignment
 
 from config import (
     N_CLUSTERS,
@@ -407,3 +408,78 @@ def cluster_and_weight(
     col_names = [f"type_{m}" for m in range(n_clusters)]
     Pi_df = pd.DataFrame(Pi, index=permnos, columns=col_names)
     return Pi_df, model
+
+
+def compute_cluster_prototypes(U: np.ndarray, Pi_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build unit-norm cluster prototypes from soft memberships.
+
+    Each prototype is the membership-weighted average embedding for that
+    cluster, projected back onto the unit sphere.
+    """
+    if Pi_df.empty:
+        return pd.DataFrame(index=[], columns=np.arange(U.shape[1]), dtype=float)
+
+    weights = Pi_df.values.astype(np.float64)            # N x M
+    proto = weights.T @ U                                # M x P
+    norms = np.linalg.norm(proto, axis=1, keepdims=True)
+    norms = np.where(norms == 0.0, 1.0, norms)
+    proto = proto / norms
+    return pd.DataFrame(proto, index=Pi_df.columns)
+
+
+def align_cluster_labels(
+    Pi_df: pd.DataFrame,
+    U: np.ndarray,
+    prev_prototypes: pd.DataFrame | None,
+    next_type_id: int = 0,
+) -> tuple[pd.DataFrame, pd.DataFrame, int, dict[str, str]]:
+    """
+    Align current month cluster labels to the previous month's labels.
+
+    Matching is done with cosine similarity between cluster prototypes and a
+    Hungarian assignment. Unmatched current clusters receive new persistent
+    labels `type_k`.
+    """
+    curr_prototypes = compute_cluster_prototypes(U, Pi_df)
+    if prev_prototypes is None or prev_prototypes.empty or curr_prototypes.empty:
+        rename_map = {
+            col: f"type_{next_type_id + i}"
+            for i, col in enumerate(Pi_df.columns)
+        }
+        Pi_aligned = Pi_df.rename(columns=rename_map)
+        proto_aligned = curr_prototypes.rename(index=rename_map)
+        return Pi_aligned, proto_aligned, next_type_id + len(rename_map), rename_map
+
+    curr_cols = list(curr_prototypes.index)
+    prev_cols = list(prev_prototypes.index)
+    sims = np.clip(curr_prototypes.values @ prev_prototypes.values.T, -1.0, 1.0)
+    cost = 1.0 - sims
+    row_ind, col_ind = linear_sum_assignment(cost)
+
+    rename_map: dict[str, str] = {}
+    used_prev: set[str] = set()
+    for r, c in zip(row_ind, col_ind):
+        curr = curr_cols[r]
+        prev = prev_cols[c]
+        rename_map[curr] = prev
+        used_prev.add(prev)
+
+    for curr in curr_cols:
+        if curr not in rename_map:
+            rename_map[curr] = f"type_{next_type_id}"
+            next_type_id += 1
+
+    Pi_aligned = Pi_df.rename(columns=rename_map)
+    proto_aligned = curr_prototypes.rename(index=rename_map)
+
+    # If multiple current clusters collapse onto the same persistent label,
+    # aggregate them before downstream use.
+    Pi_aligned = Pi_aligned.T.groupby(level=0).sum().T
+    proto_aligned = proto_aligned.groupby(level=0).mean()
+    proto_vals = proto_aligned.values
+    norms = np.linalg.norm(proto_vals, axis=1, keepdims=True)
+    norms = np.where(norms == 0.0, 1.0, norms)
+    proto_aligned.loc[:, :] = proto_vals / norms
+
+    return Pi_aligned, proto_aligned, next_type_id, rename_map

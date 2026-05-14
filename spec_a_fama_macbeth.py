@@ -46,7 +46,7 @@ import config
 from data_loader   import (get_date_pairs, load_characteristics,
                             load_market_cap, load_returns_panel)
 from normalization import preprocess
-from clustering    import cluster_and_weight
+from clustering    import cluster_and_weight, align_cluster_labels
 from portfolio_optimizer import (optimize_portfolio_a, estimate_covariance,
                                   rank_longshort)
 from backtesting   import (BacktestResult, compute_tc, plot_performance,
@@ -86,6 +86,7 @@ def _cs_regression(
 
     Pi_ = Pi.loc[common].values            # (N × M)
     r_  = r_t.loc[common].values           # (N,)
+    M   = Pi_.shape[1]
 
     if weights is not None:
         w_ = weights.reindex(common).fillna(1.0).values
@@ -93,8 +94,12 @@ def _cs_regression(
     else:
         w_ = np.ones(len(common)) / len(common)
 
-    # Build regressor matrix [1 | Π]  (N × M+1)
-    X = np.column_stack([np.ones(len(r_)), Pi_])
+    # Π rows sum to 1, so [1 | Π] is exactly collinear. Drop one membership
+    # column and treat it as the baseline type absorbed by the intercept.
+    if M > 1:
+        X = np.column_stack([np.ones(len(r_)), Pi_[:, :-1]])
+    else:
+        X = np.ones((len(r_), 1))
 
     # WLS: θ̂ = (X^T W X)^{-1} X^T W r
     W = np.diag(w_)
@@ -108,10 +113,12 @@ def _cs_regression(
         try:
             theta = np.linalg.lstsq(XtWX, XtWr, rcond=None)[0]
         except Exception:
-            return np.nan, np.full(Pi.shape[1], np.nan)
+            return np.nan, np.full(M, np.nan)
 
-    alpha   = theta[0]
-    lambdas = theta[1:]
+    alpha = theta[0]
+    lambdas = np.zeros(M)
+    if M > 1:
+        lambdas[:-1] = theta[1:]
     return alpha, lambdas
 
 
@@ -138,7 +145,8 @@ def run_spec_a(
     method       : "spherical_kmeans" or "hdbscan"
     n_clusters   : M (ignored for HDBSCAN)
     tau          : soft-weight temperature
-    universe_size: keep top-N stocks by market cap each month
+    universe_size: keep top-N stocks by market cap each month;
+                   use None or 0 for full universe
     start_date   : integer date to start trading (WARMUP_MONTHS of burn-in before)
     rolling_window : number of past months for rolling λ̂ estimation (None=expanding)
     cov_method   : "ledoit_wolf" | "diagonal" | "sample"
@@ -149,7 +157,10 @@ def run_spec_a(
     method        = method        or config.CLUSTER_METHOD
     n_clusters    = n_clusters    or config.N_CLUSTERS
     tau           = tau           or config.TEMPERATURE
-    universe_size = universe_size or config.SPEC_A_UNIVERSE_SIZE
+    if universe_size is None:
+        universe_size = config.SPEC_A_UNIVERSE_SIZE
+    if universe_size is not None and universe_size <= 0:
+        universe_size = None
     rolling_window = rolling_window or config.ROLLING_WINDOW
     cov_method    = cov_method    or config.SPEC_A_COV_ESTIMATOR
 
@@ -186,6 +197,8 @@ def run_spec_a(
     clustering_results = {}         # store all Pi_df for each date
 
     w_prev: np.ndarray | None = None
+    prev_prototypes: pd.DataFrame | None = None
+    next_type_id = 0
 
     if verbose:
         print(f"\nSpec A  |  method={method}  M={n_clusters}  τ={tau}")
@@ -235,6 +248,14 @@ def run_spec_a(
             warnings.warn(f"  [{chars_date}] clustering failed: {e} – skipping")
             continue
 
+        Pi_df, curr_prototypes, next_type_id, _ = align_cluster_labels(
+            Pi_df,
+            U_arr,
+            prev_prototypes=prev_prototypes,
+            next_type_id=next_type_id,
+        )
+        prev_prototypes = curr_prototypes
+
         if verbose and method == "hdbscan":
             n_found = getattr(model, "n_clusters_", Pi_df.shape[1])
             n_noise = getattr(model, "n_noise_", 0)
@@ -257,7 +278,110 @@ def run_spec_a(
         clustering_results[chars_date] = Pi_df
 
         # ----------------------------------------------------------------
-        # Step 3: Cross-sectional OLS for λ_{m,t}  using returns at ret_date
+        # Step 3: Form portfolio for ret_date using only PAST λ estimates.
+        # At month t we can use characteristics from t-1 and λ-history
+        # estimated through t-1, then realise on returns at t.
+        # ----------------------------------------------------------------
+        if len(lambda_history) >= warmup:
+            lambda_hat = pd.concat(list(lambda_history), axis=1).T.mean(axis=0, skipna=True)
+            alpha_hat  = np.nanmean(list(alpha_history))
+
+            Pi_aligned = Pi_df.reindex(columns=lambda_hat.index, fill_value=0.0)
+            mu_hat = alpha_hat + Pi_aligned.values @ lambda_hat.values
+            mu_hat_series = pd.Series(mu_hat, index=Pi_df.index)
+
+            # ------------------------------------------------------------
+            # Step 4: Portfolio optimisation
+            # ------------------------------------------------------------
+        # Align returns history for covariance estimation
+            N = len(permnos_t)
+
+            if use_optimizer:
+                # Use only returns known before the current holding period.
+                if rolling_window:
+                    hist_dates = [p[1] for p in pairs[max(0, idx - rolling_window): idx]]
+                else:
+                    hist_dates = [p[1] for p in pairs[:idx]]
+
+                available_hist = [d for d in hist_dates if d in ret_wide.index]
+                ret_hist = ret_wide.loc[available_hist, :]
+
+                Sigma, active_permnos = estimate_covariance(
+                    ret_hist,
+                    permnos=permnos_t.tolist(),
+                    method=cov_method,
+                )
+
+                if w_prev is None or len(w_prev) != N:
+                    w_prev = np.zeros(N)
+
+                mu_vec = mu_hat_series.reindex(permnos_t).fillna(0.0).values
+                active_mask = np.isin(permnos_t, np.array(active_permnos))
+                active_idx = np.flatnonzero(active_mask)
+
+                try:
+                    if len(active_idx) < 2:
+                        w_new = np.zeros(N)
+                    else:
+                        w_active = optimize_portfolio_a(
+                            mu    = mu_vec[active_idx],
+                            Sigma = Sigma,
+                            w_prev = w_prev[active_idx],
+                            gamma  = config.SPEC_A_GAMMA,
+                            kappa  = config.SPEC_A_KAPPA,
+                            max_lev = config.SPEC_A_MAX_LEVERAGE,
+                            w_max  = config.SPEC_A_MAX_SINGLE,
+                            dollar_neutral = config.SPEC_A_DOLLAR_NEUTRAL,
+                        )
+                        w_new = np.zeros(N)
+                        w_new[active_idx] = w_active
+                except Exception as e:
+                    warnings.warn(f"[{chars_date}] optimizer failed: {e}. Using rank LS.")
+                    w_new = rank_longshort(mu_vec)
+            else:
+                mu_vec = mu_hat_series.reindex(permnos_t).fillna(0.0).values
+                w_new  = rank_longshort(mu_vec)
+                if w_prev is None or len(w_prev) != N:
+                    w_prev = np.zeros(N)
+
+            # ------------------------------------------------------------
+            # Step 5: Realise return at the current ret_date
+            # ------------------------------------------------------------
+            try:
+                r_t = ret_wide.loc[ret_date].dropna()
+            except KeyError:
+                w_prev = w_new
+                continue
+
+            common = np.intersect1d(permnos_t, r_t.index)
+            if len(common) == 0:
+                w_prev = w_new
+                continue
+
+            w_aligned = pd.Series(w_new, index=permnos_t).reindex(common).fillna(0.0).values
+            r_aligned = r_t.reindex(common).values
+
+            gross_ret = float(w_aligned @ r_aligned)
+            tc        = compute_tc(w_new, w_prev, tc_bps=config.TC_BPS)
+            net_ret   = gross_ret - tc
+
+            strategy_returns.append(net_ret)
+            dates_out.append(ret_date)
+
+            turnover  = float(np.sum(np.abs(w_new - w_prev))) / 2.0
+            leverage  = float(np.sum(np.abs(w_new)))
+            weights_hist.append((ret_date, w_new))
+            turnover_hist.append((ret_date, turnover))
+            leverage_hist.append((ret_date, leverage))
+
+            w_prev = w_new
+
+            if verbose and idx % 12 == 0:
+                print(f"  t={ret_date}  ret={net_ret:+.4f}  "
+                      f"lev={leverage:.2f}  to={turnover:.4f}")
+
+        # ----------------------------------------------------------------
+        # Step 6: After the return is observed, estimate λ_{m,t}.
         # ----------------------------------------------------------------
         try:
             r_t = ret_wide.loc[ret_date].dropna()
@@ -284,129 +408,6 @@ def run_spec_a(
         lambda_series = pd.Series(lambda_t, index=Pi_df.columns, name=ret_date)
         lambda_history.append(lambda_series)
         lambda_ts.append(lambda_series)
-
-        # ----------------------------------------------------------------
-        # Step 4: Need warmup months before we start trading
-        # ----------------------------------------------------------------
-        if idx < warmup or len(lambda_history) < warmup:
-            continue
-
-        # Rolling λ̂ (time-series average of past estimates)
-        lambda_hat = pd.concat(list(lambda_history), axis=1).T.mean(axis=0, skipna=True)
-        alpha_hat  = np.nanmean(list(alpha_history))
-
-        # ----------------------------------------------------------------
-        # Step 5: Form next-period return forecasts  μ̂_{i,t+1|t}
-        # Requires characteristics at the CURRENT date (chars_date = t)
-        # and the rolling λ̂ just estimated through t.
-        # We re-use Pi_df (which IS at chars_date = t).
-        # ----------------------------------------------------------------
-        Pi_aligned = Pi_df.reindex(columns=lambda_hat.index, fill_value=0.0)
-        mu_hat = alpha_hat + Pi_aligned.values @ lambda_hat.values
-        mu_hat_series = pd.Series(mu_hat, index=Pi_df.index)
-
-        # ----------------------------------------------------------------
-        # Step 6: Portfolio optimisation
-        # ----------------------------------------------------------------
-        # Align returns history for covariance estimation
-        N = len(permnos_t)
-
-        if use_optimizer:
-            # Return history (rolling window)
-            if rolling_window:
-                hist_dates = [p[1] for p in pairs[max(0, idx - rolling_window): idx + 1]]
-            else:
-                hist_dates = [p[1] for p in pairs[:idx + 1]]
-
-            available_hist = [d for d in hist_dates if d in ret_wide.index]
-            ret_hist = ret_wide.loc[available_hist, :]
-
-            Sigma, active_permnos = estimate_covariance(
-                ret_hist,
-                permnos=permnos_t.tolist(),
-                method=cov_method,
-            )
-
-            if w_prev is None:
-                w_prev = np.zeros(N)
-            elif len(w_prev) != N:
-                w_prev = np.zeros(N)
-
-            mu_vec = mu_hat_series.reindex(permnos_t).fillna(0.0).values
-            active_mask = np.isin(permnos_t, np.array(active_permnos))
-            active_idx = np.flatnonzero(active_mask)
-
-            try:
-                if len(active_idx) < 2:
-                    w_new = np.zeros(N)
-                else:
-                    w_active = optimize_portfolio_a(
-                        mu    = mu_vec[active_idx],
-                        Sigma = Sigma,
-                        w_prev = w_prev[active_idx],
-                        gamma  = config.SPEC_A_GAMMA,
-                        kappa  = config.SPEC_A_KAPPA,
-                        max_lev = config.SPEC_A_MAX_LEVERAGE,
-                        w_max  = config.SPEC_A_MAX_SINGLE,
-                        dollar_neutral = config.SPEC_A_DOLLAR_NEUTRAL,
-                    )
-                    w_new = np.zeros(N)
-                    w_new[active_idx] = w_active
-            except Exception as e:
-                warnings.warn(f"[{chars_date}] optimizer failed: {e}. Using rank LS.")
-                w_new = rank_longshort(mu_vec)
-        else:
-            mu_vec = mu_hat_series.reindex(permnos_t).fillna(0.0).values
-            w_new  = rank_longshort(mu_vec)
-            if w_prev is None:
-                w_prev = np.zeros(N)
-            elif len(w_prev) != N:
-                w_prev = np.zeros(N)
-
-        # ----------------------------------------------------------------
-        # Step 7: Realise return at NEXT period's ret_date
-        # (We need to look ahead one more pair)
-        # ----------------------------------------------------------------
-        next_idx = idx + 1
-        if next_idx >= len(pairs):
-            break
-
-        next_ret_date = pairs[next_idx][1]
-        try:
-            r_next = ret_wide.loc[next_ret_date].dropna()
-        except KeyError:
-            w_prev = w_new
-            continue
-
-        # Align weights with available returns
-        common = np.intersect1d(permnos_t, r_next.index)
-        if len(common) == 0:
-            w_prev = w_new
-            continue
-
-        perm_idx = pd.Index(permnos_t)
-        w_aligned = pd.Series(w_new, index=permnos_t).reindex(common).fillna(0.0).values
-        r_aligned = r_next.reindex(common).fillna(0.0).values
-
-        gross_ret = float(w_aligned @ r_aligned)
-        tc        = compute_tc(w_new, w_prev, tc_bps=config.TC_BPS)
-        net_ret   = gross_ret - tc
-
-        strategy_returns.append(net_ret)
-        dates_out.append(next_ret_date)
-
-        # Track diagnostics
-        turnover  = float(np.sum(np.abs(w_new - w_prev))) / 2.0
-        leverage  = float(np.sum(np.abs(w_new)))
-        weights_hist.append((next_ret_date, w_new))
-        turnover_hist.append((next_ret_date, turnover))
-        leverage_hist.append((next_ret_date, leverage))
-
-        w_prev = w_new
-
-        if verbose and idx % 12 == 0:
-            print(f"  t={next_ret_date}  ret={net_ret:+.4f}  "
-                  f"lev={leverage:.2f}  to={turnover:.4f}")
 
     # ----------------------------------------------------------------
     # Assemble results
@@ -501,7 +502,7 @@ def _parse_args():
     )
     parser.add_argument(
         "--universe", type=int, default=config.SPEC_A_UNIVERSE_SIZE,
-        help="Max stocks by market cap per month (default: %(default)s)",
+        help="Max stocks by market cap per month; use 0 for full universe (default: %(default)s)",
     )
     parser.add_argument(
         "--start", type=int, default=None,
