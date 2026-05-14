@@ -15,6 +15,7 @@ CHARS_DIR = "data/processed/characteristics_by_month"  # Processed data used for
 RETURNS_FILE = "data/raw/monthly_1990_to_2018.csv"
 PROCESSED_DIR = "data/processed"
 OUTPUT_DIR = "results"
+ALPHAMARK_EXPORT_DIR = os.path.join(OUTPUT_DIR, "alphamark_input")
 
 # Columns that are NOT firm characteristics (excluded from the embedding)
 NON_CHAR_COLS = ["permno", "DATE", "sic2"]
