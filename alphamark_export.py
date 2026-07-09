@@ -102,7 +102,7 @@ def export_alphamark_panel(
         universe_size = None
     if rolling_window is None:
         rolling_window = config.ROLLING_WINDOW
-    output_dir = output_dir or config.ALPHAMARK_EXPORT_DIR
+    output_dir = os.path.abspath(output_dir or config.ALPHAMARK_EXPORT_DIR)
     warmup = config.WARMUP_MONTHS
     min_lambda_history = rolling_window if rolling_window is not None else warmup
 
@@ -192,8 +192,8 @@ def export_alphamark_panel(
             mu_hat_series = pd.Series(np.nan, index=pi_df.index)
 
         export_df = pd.DataFrame(index=pi_df.index)
-        export_df["ticker"] = export_df.index.astype(str)
-        export_df["date"] = pd.to_datetime(str(ret_date), format="%Y%m%d")
+        export_df["ticker"] = [str(ticker) for ticker in export_df.index]
+        export_df["date"] = pd.to_datetime(str(ret_date), format="%Y%m%d").strftime("%Y-%m-%d")
 
         cluster_signal_df = pi_df.add_prefix("pret_")
         export_df = export_df.join(cluster_signal_df)
@@ -201,9 +201,12 @@ def export_alphamark_panel(
         export_df["fret_monthly_ret"] = r_t.reindex(export_df.index)
         export_df["bs_equal"] = 1.0
         export_df["bs_mvel1"] = pd.to_numeric(mktcap.reindex(export_df.index), errors="coerce")
+        export_df["ticker"] = export_df["ticker"].astype(object)
+        export_df["date"] = export_df["date"].astype(object)
 
         # AlphaMark needs a usable target; keep rows with realized returns.
         export_df = export_df.loc[export_df["fret_monthly_ret"].notna()].copy()
+        export_df.columns = pd.Index([str(col) for col in export_df.columns], dtype=object)
 
         if export_df.empty:
             continue
