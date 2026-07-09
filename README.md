@@ -6,14 +6,7 @@ we can edit this later just adding a few improvement ideas/potential issues rn:
 4. think abt spherical k means stopping rule? maybe better would be checking for assignment change and checking sum of squared diff for all centroids? because in high dimensions coord change might be very small but impactful?
 5. is hdbscan even useful considering curse of dimensionality?
 6. reconsider all hyperparam vals
-7. data cleaning methods might be cooked (currently taking sic2 medians acc to date) + is winsorization needed?
-
-
-current data cleaning workflow (fix later this isn't ideal):
-1. try forward fill sic2 vals using past dates
-2. fill in the group median for each industry using sic2
-3. for remaining, fill date median
-4. for all missing sic2 vals, we assign code 99
+7. data cleaning methods might be cooked (nothing rn just ignoring data where we can)
 
 
 reqd file structure for data:
