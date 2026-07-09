@@ -161,10 +161,12 @@ def run_spec_a(
         universe_size = config.SPEC_A_UNIVERSE_SIZE
     if universe_size is not None and universe_size <= 0:
         universe_size = None
-    rolling_window = rolling_window or config.ROLLING_WINDOW
+    if rolling_window is None:
+        rolling_window = config.ROLLING_WINDOW
     cov_method    = cov_method    or config.SPEC_A_COV_ESTIMATOR
 
     warmup        = config.WARMUP_MONTHS
+    min_lambda_history = rolling_window if rolling_window is not None else warmup
 
     # --- load returns panel once ---
     if verbose:
@@ -178,13 +180,13 @@ def run_spec_a(
     if start_date:
         pairs = [(cd, rd) for cd, rd in pairs if cd >= start_date]
 
-    if len(pairs) < warmup + 2:
-        raise ValueError("Not enough date pairs for the requested warmup period.")
+    if len(pairs) < min_lambda_history + 2:
+        raise ValueError("Not enough date pairs for the requested lambda window.")
 
     M = n_clusters  # may be updated by HDBSCAN
 
     # Storage
-    lambda_history: deque = deque(maxlen=rolling_window)    # rolling λ̂ buffer
+    lambda_history: deque = deque(maxlen=rolling_window)    # valid λ̂ buffer
     alpha_history:  deque = deque(maxlen=rolling_window)
 
     strategy_returns  = []
@@ -202,7 +204,10 @@ def run_spec_a(
 
     if verbose:
         print(f"\nSpec A  |  method={method}  M={n_clusters}  τ={tau}")
-        print(f"Trading from pair index {warmup} onward  ({len(pairs)-warmup} periods)\n")
+        print(
+            f"Trading after {min_lambda_history} valid lambda months "
+            f"({len(pairs)} candidate periods)\n"
+        )
 
     for idx, (chars_date, ret_date) in enumerate(pairs):
 
@@ -282,7 +287,7 @@ def run_spec_a(
         # At month t we can use characteristics from t-1 and λ-history
         # estimated through t-1, then realise on returns at t.
         # ----------------------------------------------------------------
-        if len(lambda_history) >= warmup:
+        if len(lambda_history) >= min_lambda_history:
             lambda_hat = pd.concat(list(lambda_history), axis=1).T.mean(axis=0, skipna=True)
             alpha_hat  = np.nanmean(list(alpha_history))
 
@@ -388,6 +393,15 @@ def run_spec_a(
         except KeyError:
             if verbose:
                 print(f"  [{ret_date}] returns missing – skipping")
+            continue
+
+        common_n = len(Pi_df.index.intersection(r_t.index))
+        if common_n < config.SPEC_A_MIN_VALID_LAMBDA_OBS:
+            if verbose:
+                print(
+                    f"  [{ret_date}] only {common_n} firms for lambda "
+                    f"(<{config.SPEC_A_MIN_VALID_LAMBDA_OBS}) – skipping"
+                )
             continue
 
         if config.SPEC_A_CS_WEIGHT == "value":

@@ -22,9 +22,11 @@ import pandas as pd
 
 from config import (
     CHARS_DIR,
+    RAW_CHARS_DIR,
     RETURNS_FILE,
     NON_CHAR_COLS,
     MIN_VALID_FRAC,
+    USE_RAW_CHARACTERISTICS,
 )
 
 
@@ -45,12 +47,16 @@ def _date_to_int(dt: datetime) -> int:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _characteristics_dir() -> str:
+    return RAW_CHARS_DIR if USE_RAW_CHARACTERISTICS else CHARS_DIR
+
+
 def get_chars_dates() -> list[int]:
     """
     Return sorted list of integer dates for which characteristic files exist.
-    Files are expected to be named  chars_YYYYMMDD.csv  in CHARS_DIR.
+    Files are expected to be named  chars_YYYYMMDD.csv.
     """
-    pattern = os.path.join(CHARS_DIR, "chars_*.csv")
+    pattern = os.path.join(_characteristics_dir(), "chars_*.csv")
     files = sorted(glob.glob(pattern))
     dates = []
     for f in files:
@@ -100,8 +106,9 @@ def load_characteristics(date: int) -> pd.DataFrame:
     DataFrame with index=permno, columns = characteristic names.
     Non-characteristic columns (permno, DATE, sic2) are dropped.
     Stocks with fewer than MIN_VALID_FRAC of characteristics are removed.
+    Missing values are preserved for mask-aware geometry downstream.
     """
-    fpath = os.path.join(CHARS_DIR, f"chars_{date}.csv")
+    fpath = os.path.join(_characteristics_dir(), f"chars_{date}.csv")
     df = pd.read_csv(fpath, low_memory=False)
 
     # Set index
@@ -114,7 +121,7 @@ def load_characteristics(date: int) -> pd.DataFrame:
     # Keep only numeric columns
     df = df.select_dtypes(include=[np.number])
 
-    # Drop stocks that are almost entirely NaN
+    # Drop stocks without enough observed characteristics
     valid_frac = df.notna().mean(axis=1)
     df = df[valid_frac >= MIN_VALID_FRAC]
 
@@ -165,7 +172,7 @@ def load_market_cap(date: int) -> pd.Series:
     -------
     pd.Series  indexed by permno.
     """
-    fpath = os.path.join(CHARS_DIR, f"chars_{date}.csv")
+    fpath = os.path.join(_characteristics_dir(), f"chars_{date}.csv")
     df = pd.read_csv(fpath, usecols=["permno", "mvel1"], low_memory=False)
     df = df.set_index("permno")["mvel1"]
     return df.dropna()

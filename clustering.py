@@ -19,8 +19,8 @@ from __future__ import annotations
 import warnings
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import normalize
 from scipy.optimize import linear_sum_assignment
+from normalization import masked_cosine_similarity
 
 from config import (
     N_CLUSTERS,
@@ -33,6 +33,15 @@ from config import (
     HDBSCAN_LEAF_SIZE,
     RANDOM_SEED,
 )
+
+
+def _normalise_nan_rows(X: np.ndarray) -> np.ndarray:
+    X = np.asarray(X, dtype=np.float64).copy()
+    finite = np.isfinite(X)
+    norms = np.sqrt(np.where(finite, X ** 2, 0.0).sum(axis=1, keepdims=True))
+    X = np.divide(X, norms, out=X, where=norms > 0)
+    X[~finite] = np.nan
+    return X
 
 
 # ===========================================================================
@@ -91,7 +100,7 @@ class SphericalKMeans:
 
         for _ in range(self.max_iter):
             # --- Assignment (maximise cosine similarity) ---
-            sims   = X @ centroids.T        # N × M
+            sims   = masked_cosine_similarity(X, centroids)        # N × M
             labels = np.argmax(sims, axis=1)
 
             # --- Update centroids ---
@@ -99,24 +108,25 @@ class SphericalKMeans:
             for m in range(self.n_clusters):
                 mask = labels == m
                 if mask.sum() > 0:
-                    new_centroids[m] = X[mask].mean(axis=0)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        new_centroids[m] = np.nanmean(X[mask], axis=0)
                 else:
                     # Empty cluster: reinitialise randomly
                     new_centroids[m] = X[rng.randint(N)]
 
-            # L2-normalise back onto unit sphere
-            norms = np.linalg.norm(new_centroids, axis=1, keepdims=True)
-            norms = np.where(norms == 0, 1.0, norms)
-            new_centroids = new_centroids / norms
+            new_centroids = _normalise_nan_rows(new_centroids)
 
             # --- Convergence check ---
-            shift = np.max(np.abs(new_centroids - centroids))
+            diff = np.abs(new_centroids - centroids)
+            shift = np.nanmax(diff) if np.isfinite(diff).any() else 0.0
             centroids = new_centroids
             if shift < self.tol:
                 break
 
         # Objective: Σ_i (1 - u_i^T μ_{label_i})
-        cost = float(np.sum(1.0 - np.einsum("ip,ip->i", X, centroids[labels])))
+        final_sims = masked_cosine_similarity(X, centroids)
+        cost = float(np.sum(1.0 - final_sims[np.arange(N), labels]))
         return centroids, labels, cost
 
     def _kmeanspp_init(self, X: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
@@ -134,17 +144,19 @@ class SphericalKMeans:
 
         for _ in range(1, self.n_clusters):
             C = np.stack(centroids)                # (k × P)
-            sims = X @ C.T                         # (N × k)
+            sims = masked_cosine_similarity(X, C)  # (N × k)
             # Cosine distance to nearest centroid
             max_sims = sims.max(axis=1)
             dists = np.clip(1.0 - max_sims, 0.0, 2.0)
-            probs = dists / dists.sum()
+            if dists.sum() > 0:
+                probs = dists / dists.sum()
+            else:
+                probs = np.ones(N) / N
             idx = rng.choice(N, p=probs)
             centroids.append(X[idx])
 
         C = np.stack(centroids)
-        norms = np.linalg.norm(C, axis=1, keepdims=True)
-        return C / np.where(norms == 0, 1.0, norms)
+        return _normalise_nan_rows(C)
 
     # -------------------------------------------------------------------
     def fit(self, X: np.ndarray) -> "SphericalKMeans":
@@ -183,7 +195,7 @@ class SphericalKMeans:
         """Hard cluster assignments for new data X (N × P)."""
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet. Call fit() first.")
-        return np.argmax(X @ self.centroids_.T, axis=1)
+        return np.argmax(masked_cosine_similarity(X, self.centroids_), axis=1)
 
     def fit_predict(self, X: np.ndarray) -> np.ndarray:
         self.fit(X)
@@ -218,7 +230,7 @@ def compute_soft_weights_skm(
     Pi : ndarray (N × M), rows sum to 1
     """
     # Cosine distances to centroids  (N × M)
-    sims   = np.clip(U @ centroids.T, -1.0, 1.0)
+    sims   = masked_cosine_similarity(U, centroids)
     dists  = 1.0 - sims
 
     # Softmax with temperature (subtract row-max for numerical stability)
@@ -421,10 +433,12 @@ def compute_cluster_prototypes(U: np.ndarray, Pi_df: pd.DataFrame) -> pd.DataFra
         return pd.DataFrame(index=[], columns=np.arange(U.shape[1]), dtype=float)
 
     weights = Pi_df.values.astype(np.float64)            # N x M
-    proto = weights.T @ U                                # M x P
-    norms = np.linalg.norm(proto, axis=1, keepdims=True)
-    norms = np.where(norms == 0.0, 1.0, norms)
-    proto = proto / norms
+    valid = np.isfinite(U)
+    U_filled = np.where(valid, U, 0.0)
+    weight_sums = weights.T @ valid.astype(np.float64)
+    proto = weights.T @ U_filled
+    proto = np.divide(proto, weight_sums, out=np.full_like(proto, np.nan), where=weight_sums > 0)
+    proto = _normalise_nan_rows(proto)
     return pd.DataFrame(proto, index=Pi_df.columns)
 
 
@@ -453,7 +467,7 @@ def align_cluster_labels(
 
     curr_cols = list(curr_prototypes.index)
     prev_cols = list(prev_prototypes.index)
-    sims = np.clip(curr_prototypes.values @ prev_prototypes.values.T, -1.0, 1.0)
+    sims = masked_cosine_similarity(curr_prototypes.values, prev_prototypes.values)
     cost = 1.0 - sims
     row_ind, col_ind = linear_sum_assignment(cost)
 
@@ -477,9 +491,6 @@ def align_cluster_labels(
     # aggregate them before downstream use.
     Pi_aligned = Pi_aligned.T.groupby(level=0).sum().T
     proto_aligned = proto_aligned.groupby(level=0).mean()
-    proto_vals = proto_aligned.values
-    norms = np.linalg.norm(proto_vals, axis=1, keepdims=True)
-    norms = np.where(norms == 0.0, 1.0, norms)
-    proto_aligned.loc[:, :] = proto_vals / norms
+    proto_aligned.loc[:, :] = _normalise_nan_rows(proto_aligned.values)
 
     return Pi_aligned, proto_aligned, next_type_id, rename_map

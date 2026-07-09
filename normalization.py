@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mstats
 
-from config import WINSOR_LOWER, WINSOR_UPPER
+from config import MASKED_COSINE_SHRINKAGE, WINSOR_LOWER, WINSOR_UPPER
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +123,45 @@ def to_unit_sphere(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(U, index=df.index, columns=df.columns)
 
 
+def masked_cosine_similarity(
+    X: np.ndarray,
+    Y: np.ndarray | None = None,
+    shrink: bool = MASKED_COSINE_SHRINKAGE,
+) -> np.ndarray:
+    """
+    Compute cosine similarity using only mutually observed coordinates.
+
+    NaNs mark missing characteristics. For each pair, the dot product and both
+    norms are computed on the overlapping observed characteristics only. When
+    shrink=True, similarities are multiplied by overlap_fraction so low-overlap
+    comparisons are pulled toward neutral similarity rather than looking falsely
+    precise.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    Y = X if Y is None else np.asarray(Y, dtype=np.float64)
+    X_valid = np.isfinite(X)
+    Y_valid = np.isfinite(Y)
+    X_filled = np.where(X_valid, X, 0.0)
+    Y_filled = np.where(Y_valid, Y, 0.0)
+
+    sims = np.zeros((X.shape[0], Y.shape[0]), dtype=np.float64)
+    n_features = max(X.shape[1], 1)
+
+    for j in range(Y.shape[0]):
+        overlap = X_valid & Y_valid[j]
+        overlap_count = overlap.sum(axis=1)
+        dot = (X_filled * Y_filled[j] * overlap).sum(axis=1)
+        x_norm = np.sqrt(((X_filled ** 2) * overlap).sum(axis=1))
+        y_norm = np.sqrt(((Y_filled[j] ** 2) * overlap).sum(axis=1))
+        denom = x_norm * y_norm
+        sim = np.divide(dot, denom, out=np.zeros_like(dot), where=denom > 0)
+        if shrink:
+            sim *= overlap_count / n_features
+        sims[:, j] = np.clip(sim, -1.0, 1.0)
+
+    return sims
+
+
 # ---------------------------------------------------------------------------
 # Step 5 — Cosine distance matrix  (Equations 2 & 3)
 # ---------------------------------------------------------------------------
@@ -145,7 +184,10 @@ def cosine_distance_matrix(U: np.ndarray) -> np.ndarray:
     D : ndarray  (N × N), values in [0, 2]
     """
     # Clamp similarities to [-1, 1] for numerical safety
-    sim = np.clip(U @ U.T, -1.0, 1.0)
+    if np.isnan(U).any():
+        sim = masked_cosine_similarity(U)
+    else:
+        sim = np.clip(U @ U.T, -1.0, 1.0)
     D = 1.0 - sim
     # Force diagonal to 0 and symmetrise
     np.fill_diagonal(D, 0.0)
@@ -163,7 +205,10 @@ def preprocess(df: pd.DataFrame,
     """
     Run the complete preprocessing pipeline on a raw characteristics DataFrame:
 
-        winsorize → standardise → fill NaN → L2-normalise
+        winsorize → standardise
+
+    Missing values are kept as NaN so downstream clustering can use masked
+    cosine similarity instead of treating missing characteristics as average.
 
     Parameters
     ----------
@@ -177,8 +222,7 @@ def preprocess(df: pd.DataFrame,
     """
     df = winsorize(df)
     df = cross_sectional_standardize(df)
-    df = fill_missing(df, fill_value=0.0)
-    U_df = to_unit_sphere(df)
+    U_df = df
 
     if return_array:
         return U_df, U_df.values.astype(np.float64)

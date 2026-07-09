@@ -17,6 +17,10 @@ PROCESSED_DIR = "data/processed"
 OUTPUT_DIR = "results"
 ALPHAMARK_EXPORT_DIR = os.path.join(OUTPUT_DIR, "alphamark_input")
 
+# Use raw characteristic files for model estimation so missingness is handled
+# explicitly by the embedding pipeline instead of pre-filled median values.
+USE_RAW_CHARACTERISTICS = True
+
 # Columns that are NOT firm characteristics (excluded from the embedding)
 NON_CHAR_COLS = ["permno", "DATE", "sic2"]
 
@@ -29,7 +33,11 @@ WINSOR_UPPER = 0.99   # 99th percentile
 
 # Minimum fraction of non-NaN values required to keep a stock in a given month.
 # Stocks below this threshold are dropped before clustering / regression.
-MIN_VALID_FRAC = 0.50   # stock must have >= 50% of characteristics observed
+MIN_VALID_FRAC = 0.80   # stock must have >= 80% of characteristics observed
+
+# Masked cosine compares firms only on mutually observed characteristics and
+# shrinks similarities toward 0 when overlap is thin.
+MASKED_COSINE_SHRINKAGE = True
 
 # ---------------------------------------------------------------------------
 # Clustering
@@ -70,6 +78,10 @@ ROLLING_WINDOW = 60
 # ---------------------------------------------------------------------------
 # Cross-sectional weighting: "equal" or "value" (value-weight by market cap)
 SPEC_A_CS_WEIGHT = "equal"
+
+# Minimum return-overlap firms required before a month enters the Spec A
+# lambda rolling window.
+SPEC_A_MIN_VALID_LAMBDA_OBS = 200
 
 # Universe filter: keep only the top N stocks by market cap each month.
 # Set to None to use all stocks.

@@ -100,9 +100,11 @@ def export_alphamark_panel(
         universe_size = config.SPEC_A_UNIVERSE_SIZE
     if universe_size is not None and universe_size <= 0:
         universe_size = None
-    rolling_window = rolling_window or config.ROLLING_WINDOW
+    if rolling_window is None:
+        rolling_window = config.ROLLING_WINDOW
     output_dir = output_dir or config.ALPHAMARK_EXPORT_DIR
     warmup = config.WARMUP_MONTHS
+    min_lambda_history = rolling_window if rolling_window is not None else warmup
 
     combined_dir = os.path.join(output_dir, "combined")
     os.makedirs(combined_dir, exist_ok=True)
@@ -180,7 +182,7 @@ def export_alphamark_panel(
         except KeyError:
             continue
 
-        if len(lambda_history) >= warmup:
+        if len(lambda_history) >= min_lambda_history:
             lambda_hat = pd.concat(list(lambda_history), axis=1).T.mean(axis=0, skipna=True)
             alpha_hat = np.nanmean(list(alpha_history))
             pi_aligned = pi_df.reindex(columns=lambda_hat.index, fill_value=0.0)
@@ -222,6 +224,10 @@ def export_alphamark_panel(
         if first_ret_date is None:
             first_ret_date = ret_date
         last_ret_date = ret_date
+
+        common_n = len(pi_df.index.intersection(r_t.index))
+        if common_n < config.SPEC_A_MIN_VALID_LAMBDA_OBS:
+            continue
 
         alpha_t, lambda_t = _cs_regression(r_t, pi_df)
         if not np.isnan(alpha_t):
