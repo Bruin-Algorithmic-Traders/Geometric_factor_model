@@ -44,5 +44,4 @@ cython_debug/
 *.log
 results/
 
-#Data
-data/
+/data/
