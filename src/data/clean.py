@@ -36,7 +36,8 @@ def drop_cols(lf: pl.LazyFrame) -> pl.LazyFrame:
 def filter_cols(lf: pl.LazyFrame) -> pl.LazyFrame:
     return lf.filter(
         pl.col("DATE").is_not_null() & pl.col("permno").is_not_null() &
-        (pl.col("mvel1") >= pl.col("mvel1").quantile(0.2).over("DATE"))
+        (pl.col("mvel1") >= pl.col("mvel1").quantile(0.2).over("DATE")) &
+        (pl.col("zerotrade") < 10)
     )
 
 def fill_missing_vals(lf: pl.LazyFrame, cols : list[str]) -> pl.LazyFrame:
