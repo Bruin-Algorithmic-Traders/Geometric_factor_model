@@ -6,6 +6,7 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 
 METADATA_COLS = ["DATE", "permno"]
+TARGET_COL = ["return"]
 
 DROPPED_COLS = [
     "sic2",        # Industry id
@@ -61,6 +62,33 @@ def rank_normalise_cols(lf: pl.LazyFrame, cols : list[str]) -> pl.LazyFrame:
         exprs.append(normalised.alias(col))
     return lf.with_columns(exprs)
 
+def join_returns(lf: pl.LazyFrame, returns_path : Path) -> pl.LazyFrame:
+
+    lf = lf.with_columns(
+        (pl.col("DATE") // 100).alias("_yyyymm"))
+
+    returns_lf = (
+        pl.scan_csv(returns_path)
+        .select([
+            pl.col("DATE")
+            .cast(pl.String)
+            .str.to_date("%Y%m%d")
+            .dt.offset_by("-1mo")
+            .dt.strftime("%Y%m")
+            .cast(pl.Int64)
+            .alias("_yyyymm"),
+            pl.col("permno"),
+            pl.col("monthly_ret").cast(pl.Float64, strict = False).alias("return")
+        ])
+        )
+    return lf.join(returns_lf, on=["_yyyymm", "permno"], how="left").drop("_yyyymm")
+
+def filter_returns(lf: pl.LazyFrame) -> pl.LazyFrame:
+    return lf.filter(
+        pl.col("return").is_not_null() &
+        ~pl.col("return").is_nan()
+        )
+
 def check_nulls(df: pl.DataFrame, cols : list[str]):
     null_df = df.select(cols).null_count()
     null_counts = null_df.to_dicts()[0]
@@ -80,18 +108,22 @@ def clean_data():
     project_root = script_dir.parents[1] 
 
     input_path = project_root / "data" / "processed" / "chars.parquet"
+    input_return_path = project_root / "data" / "raw" / "monthly_1990_to_2018.csv"
     output_path = project_root / "data" / "processed" / "chars_clean.parquet"
 
     lf = pl.scan_parquet(input_path)
 
     lf = drop_cols(lf)
     lf = filter_cols(lf)
-    feature_cols = [col for col in lf.collect_schema().names() if col not in METADATA_COLS]
+    feature_cols = [col for col in lf.collect_schema().names() if col not in METADATA_COLS and col not in TARGET_COL]
     lf = fill_missing_vals(lf, feature_cols)
     lf = rank_normalise_cols(lf, feature_cols)
 
+    lf = join_returns(lf, input_return_path)
+    lf = filter_returns(lf)
+
     clean_df = lf.collect()
-    check_nulls(clean_df, feature_cols)
+    check_nulls(clean_df, feature_cols + ["return"])
     clean_df.write_parquet(output_path)
 
 if __name__ == "__main__":
