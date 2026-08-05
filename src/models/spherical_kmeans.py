@@ -33,11 +33,16 @@ class SphericalKMeans:
             centroids[k] = X_norm[next_idx]
         return centroids
 
-    def fit(self, X : np.ndarray) -> "SphericalKMeans":
+    def fit(self, X : np.ndarray, init_centroids : np.ndarray | None = None) -> "SphericalKMeans":
         rng = np.random.default_rng(self.random_state)
         X_norm = self._normalise(X)
         N, P = X_norm.shape
-        centroids = self._kmeans_plus_plus_init(X_norm, rng)
+        if init_centroids is not None:
+            c_norms = np.linalg.norm(init_centroids, axis=1, keepdims=True)
+            c_norms[c_norms == 0] = 1e-12
+            centroids = init_centroids / c_norms
+        else:
+            centroids = self._kmeans_plus_plus_init(X_norm, rng)
 
         for _ in range(self.max_iter):
 

@@ -12,4 +12,8 @@ key decisions made:
         b. setting empty centroid to stock with highest distance
     5. spec b:
         a. w_max val
+    6. backtesting:
+        a. refitting spherical k means each month
+        b. warm-starting centroids (ie, using prev centroids as the initial ones for next month) - use consine sim as sanity check
+        c. tune hyperparams on 1990-2005 data (GOT BEST CONFIG OF K = 30, TAU = 0.35)
 
