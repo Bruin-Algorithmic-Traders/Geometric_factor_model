@@ -1,5 +1,3 @@
-# src/backtest/tune.py
-
 from pathlib import Path
 import itertools
 import numpy as np
@@ -19,13 +17,10 @@ def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2
         (pl.col("DATE") >= IS_START_DATE) & (pl.col("DATE") <= IS_END_DATE)
     )
 
-    all_dates = df_all.select("DATE").unique().sort("DATE").to_series().to_list()
     non_feature_cols = ["DATE", "permno", "return"]
     feature_cols = [col for col in df_all.columns if col not in non_feature_cols]
     builder = FactorBuilder()
 
-    param_combinations = list(itertools.product(n_clusters_grid, temperature_grid))
-    print(f"Testing {len(param_combinations)} hyperparameter combinations across {len(all_dates)} IS months...\n")
 
     grid_results = []
 
@@ -35,6 +30,9 @@ def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2
         X = group.select(feature_cols).to_numpy()
         returns = group.select("return").to_numpy().flatten()
         monthly_data.append((date, X, returns))
+
+    param_combinations = list(itertools.product(n_clusters_grid, temperature_grid))
+    print(f"Testing {len(param_combinations)} hyperparameter combinations across {len(monthly_data)} IS months...\n")
 
     for k, temp in param_combinations:
         previous_centroids = None
