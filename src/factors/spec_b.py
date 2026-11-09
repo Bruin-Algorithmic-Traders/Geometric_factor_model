@@ -1,7 +1,9 @@
 import numpy as np
 
+from src.config import FACTOR_W_MAX
+
 class FactorBuilder:
-    def __init__(self, w_max : float = None):
+    def __init__(self, w_max : float | None = FACTOR_W_MAX):
         self.w_max = w_max
 
     def compute_weights(self, Pi: np.ndarray) -> np.ndarray:

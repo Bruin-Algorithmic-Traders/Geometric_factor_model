@@ -2,20 +2,24 @@ import numpy as np
 import polars as pl
 import cvxpy as cp
 from sklearn.covariance import LedoitWolf
-from pathlib import Path
 from typing import Dict
 from src.evaluation.metrics import annualised_stats
+from src.config import (
+    COV_WINDOW_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_F,
+    MAX_FACTOR_WEIGHT, MIN_HISTORY_MONTHS, MU_WINDOW_MONTHS, PROCESSED_DIR,
+    STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET,
+)
 
 class SpecBBacktester:
     def __init__(
         self,
-        gamma_f: float = 1.0,               # Factor risk aversion
-        kappa_f: float = 0.0003,            # Transaction cost / turnover penalty parameter (3 bps)
-        gross_factor_leverage: float = 1.0, # Max gross exposure cap (L_a)
-        max_factor_weight: float = 0.20,    # Single-factor concentration cap (a_max)
-        mu_window_months: int = 12,         # Rolling window for expected factor returns mu_hat
-        cov_window_months: int = 36,        # Rolling window for factor covariance Sigma_hat
-        min_history_months: int = 36        # Initial burn-in history
+        gamma_f: float = GAMMA_F,                              # Factor risk aversion
+        kappa_f: float = KAPPA_F,                              # Turnover penalty / cost per unit turnover
+        gross_factor_leverage: float = GROSS_FACTOR_LEVERAGE,  # Max gross exposure cap (L_a)
+        max_factor_weight: float = MAX_FACTOR_WEIGHT,          # Single-factor concentration cap (a_max)
+        mu_window_months: int = MU_WINDOW_MONTHS,              # Rolling window for mu_hat
+        cov_window_months: int = COV_WINDOW_MONTHS,            # Rolling window for Sigma_hat
+        min_history_months: int = MIN_HISTORY_MONTHS           # Initial burn-in history
     ):
         self.gamma_f = gamma_f
         self.kappa_f = kappa_f
@@ -120,20 +124,10 @@ class SpecBBacktester:
 
 
 def main():
-    project_root = Path(__file__).resolve().parents[2]
-    facret_path = project_root / "data" / "processed" / "factor_returns_oos.parquet"
-    
-    if facret_path.exists():
-        df_factor_returns = pl.read_parquet(facret_path)
+    if FACTOR_RETURNS_OOS_PARQUET.exists():
+        df_factor_returns = pl.read_parquet(FACTOR_RETURNS_OOS_PARQUET)
 
-        backtester = SpecBBacktester(
-            gamma_f=1.0,
-            kappa_f=0.0003,
-            gross_factor_leverage=1.0,
-            max_factor_weight=0.20,
-            mu_window_months=12,
-            cov_window_months=36
-        )
+        backtester = SpecBBacktester()
 
         results = backtester.run_backtest(df_factor_returns)
 
@@ -144,10 +138,9 @@ def main():
             print(f"{metric:25s}: {val:8.4f}")
         print("==========================================")
 
-        out_dir = project_root / "data" / "processed"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        results["returns_df"].write_parquet(out_dir / "spec_b_oos_returns.parquet")
-        results["weights_df"].write_parquet(out_dir / "spec_b_factor_weights.parquet")
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+        results["returns_df"].write_parquet(STRATEGY_RETURNS_PARQUET)
+        results["weights_df"].write_parquet(STRATEGY_WEIGHTS_PARQUET)
 
 
 if __name__ == "__main__":

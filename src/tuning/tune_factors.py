@@ -1,25 +1,22 @@
-from pathlib import Path
 import itertools
 import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
 from src.models.spherical_kmeans import SphericalKMeans
 from src.evaluation.metrics import annualised_stats
+from src.config import (
+    CHARS_CLEAN_PARQUET, IS_END_DATE, IS_START_DATE, K_GRID, MAX_ITER, RANDOM_STATE,
+    TAU_GRID, TARGET_COL, feature_cols,
+)
 
-IS_START_DATE = 19900101
-IS_END_DATE = 20051231
-
-def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2, 0.35, 0.5, 0.75, 1.0]):
-    project_root = Path(__file__).resolve().parents[2]
-    clean_path = project_root / "data" / "processed" / "chars_clean.parquet"
+def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
 
     print(f"Loading data for In-Sample Tuning ({IS_START_DATE} to {IS_END_DATE})...")
-    df_all = pl.read_parquet(clean_path).filter(
+    df_all = pl.read_parquet(CHARS_CLEAN_PARQUET).filter(
         (pl.col("DATE") >= IS_START_DATE) & (pl.col("DATE") <= IS_END_DATE)
     )
 
-    non_feature_cols = ["DATE", "permno", "return"]
-    feature_cols = [col for col in df_all.columns if col not in non_feature_cols]
+    features = feature_cols(df_all.columns)
     builder = FactorBuilder()
 
 
@@ -28,8 +25,8 @@ def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2
     monthly_data = []
 
     for date, group in df_all.group_by("DATE", maintain_order=True):
-        X = group.select(feature_cols).to_numpy()
-        returns = group.select("return").to_numpy().flatten()
+        X = group.select(features).to_numpy()
+        returns = group.select(TARGET_COL).to_numpy().flatten()
         monthly_data.append((date, X, returns))
 
     param_combinations = list(itertools.product(n_clusters_grid, temperature_grid))
@@ -43,7 +40,7 @@ def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2
             if len(returns) < k:
                 continue
 
-            model = SphericalKMeans(n_clusters=k, max_iter=100, random_state=42)
+            model = SphericalKMeans(n_clusters=k, max_iter=MAX_ITER, random_state=RANDOM_STATE)
             model.fit(X, init_centroids=previous_centroids)
             previous_centroids = model.centroids.copy()
 

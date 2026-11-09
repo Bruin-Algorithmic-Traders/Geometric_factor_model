@@ -1,32 +1,26 @@
-from pathlib import Path
 import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
 from src.models.spherical_kmeans import SphericalKMeans
 from src.evaluation.metrics import annualised_stats
+from src.config import (
+    CHARS_CLEAN_PARQUET, FACTOR_RETURNS_OOS_PARQUET, MAX_ITER, N_CLUSTERS,
+    OOS_END_DATE, OOS_START_DATE, RANDOM_STATE, TAU, TARGET_COL, feature_cols,
+)
 
-OOS_START_DATE = 20060101
-OOS_END_DATE = 20181231
-
-def run_backtest(n_clusters: int = 30, temperature: float = 0.35):
-    project_root = Path(__file__).resolve().parents[2]
-
-    clean_path = project_root / "data" / "processed" / "chars_clean.parquet"
-    output_path = project_root / "data" / "processed" / "factor_returns_oos.parquet"
-
+def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
     print(f"Loading data for OOS evaluation ({OOS_START_DATE} to {OOS_END_DATE})...")
-    df_all = pl.read_parquet(clean_path).filter(
+    df_all = pl.read_parquet(CHARS_CLEAN_PARQUET).filter(
         (pl.col("DATE") >= OOS_START_DATE) & (pl.col("DATE") <= OOS_END_DATE)
     )
 
-    non_feature_cols = {"DATE", "permno", "return"}
-    feature_cols = [c for c in df_all.columns if c not in non_feature_cols]
+    features = feature_cols(df_all.columns)
 
     monthly_data = []
     
     for date, group in df_all.group_by("DATE", maintain_order=True):
-        X = group.select(feature_cols).to_numpy()
-        returns = group.select("return").to_numpy().flatten()
+        X = group.select(features).to_numpy()
+        returns = group.select(TARGET_COL).to_numpy().flatten()
         monthly_data.append((date, X, returns))
 
     print(f"Starting OOS backtest across {len(monthly_data)} months...")
@@ -40,7 +34,7 @@ def run_backtest(n_clusters: int = 30, temperature: float = 0.35):
         if len(returns) < n_clusters:
             continue
 
-        model = SphericalKMeans(n_clusters=n_clusters, max_iter=100, random_state=42)
+        model = SphericalKMeans(n_clusters=n_clusters, max_iter=MAX_ITER, random_state=RANDOM_STATE)
         model.fit(X, init_centroids=previous_centroids)
         previous_centroids = model.centroids.copy()
 
@@ -62,8 +56,8 @@ def run_backtest(n_clusters: int = 30, temperature: float = 0.35):
             print(f"Processed {idx + 1}/{len(monthly_data)} OOS months...")
 
     factor_returns_df = pl.DataFrame(results)
-    factor_returns_df.write_parquet(output_path, compression="zstd")
-    print(f"\nSaved OOS factor return time series to: {output_path}")
+    factor_returns_df.write_parquet(FACTOR_RETURNS_OOS_PARQUET, compression="zstd")
+    print(f"\nSaved OOS factor return time series to: {FACTOR_RETURNS_OOS_PARQUET}")
 
     print_layer_1_diagnostics(factor_returns_df, n_clusters)
 
@@ -91,4 +85,4 @@ def print_layer_1_diagnostics(df: pl.DataFrame, n_clusters: int):
     print("="*70 + "\n")
 
 if __name__ == "__main__":
-    run_backtest(n_clusters=30, temperature=0.35)
+    run_backtest()

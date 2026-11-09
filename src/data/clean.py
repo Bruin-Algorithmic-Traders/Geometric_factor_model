@@ -1,31 +1,10 @@
 import polars as pl
 from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# Column Separation By Cleaning Method
-# -----------------------------------------------------------------------------
-
-METADATA_COLS = ["DATE", "permno"]
-TARGET_COL = ["return"]
-
-DROPPED_COLS = [
-    "sic2",        # Industry id
-    "betasq",      # Duplicate of beta
-    "pchsaleinv",  # Duplicate of pchsale_pchinvt
-    "securedind",  # Duplicate flag for secured
-    "herf",        # Industry-level macro constant
-    "indmom",      # Industry-level macro constant
-    "rd_mve",      # Duplicate R&D ratio
-    "rd_sale",     # Duplicate R&D ratio
-    "sin",         # >98% sparse flag
-    "divi",        # >98% sparse flag
-    "divo",        # >98% sparse flag
-    "ps",          # Piotroski composite score
-    "absacc",      # Absolute accruals (destroys sign of acc)
-    "convind",     # Sparse convertible indicator
-]
-
-ZERO_FILL_COLS = ["rd"]
+from src.config import (
+    CHARS_CLEAN_PARQUET, CHARS_PARQUET, DROPPED_COLS, MAX_ZEROTRADE, MIN_SIZE_QUANTILE,
+    PROCESSED_DIR, RAW_RETURNS_CSV, TARGET_COL, ZERO_FILL_COLS, feature_cols,
+)
 
 # -----------------------------------------------------------------------------
 # Modular Processing Functions
@@ -37,8 +16,8 @@ def drop_cols(lf: pl.LazyFrame) -> pl.LazyFrame:
 def filter_cols(lf: pl.LazyFrame) -> pl.LazyFrame:
     return lf.filter(
         pl.col("DATE").is_not_null() & pl.col("permno").is_not_null() &
-        (pl.col("mvel1") >= pl.col("mvel1").quantile(0.2).over("DATE")) &
-        (pl.col("zerotrade") < 10)
+        (pl.col("mvel1") >= pl.col("mvel1").quantile(MIN_SIZE_QUANTILE).over("DATE")) &
+        (pl.col("zerotrade") < MAX_ZEROTRADE)
     )
 
 def fill_missing_vals(lf: pl.LazyFrame, cols : list[str]) -> pl.LazyFrame:
@@ -78,15 +57,15 @@ def join_returns(lf: pl.LazyFrame, returns_path : Path) -> pl.LazyFrame:
             .cast(pl.Int64)
             .alias("_yyyymm"),
             pl.col("permno"),
-            pl.col("monthly_ret").cast(pl.Float64, strict = False).alias("return")
+            pl.col("monthly_ret").cast(pl.Float64, strict = False).alias(TARGET_COL)
         ])
         )
     return lf.join(returns_lf, on=["_yyyymm", "permno"], how="left").drop("_yyyymm")
 
 def filter_returns(lf: pl.LazyFrame) -> pl.LazyFrame:
     return lf.filter(
-        pl.col("return").is_not_null() &
-        ~pl.col("return").is_nan()
+        pl.col(TARGET_COL).is_not_null() &
+        ~pl.col(TARGET_COL).is_nan()
         )
 
 def check_nulls(df: pl.DataFrame, cols : list[str]):
@@ -104,27 +83,21 @@ def check_nulls(df: pl.DataFrame, cols : list[str]):
 
 def clean_data():
 
-    script_dir = Path(__file__).resolve().parent
-    project_root = script_dir.parents[1] 
-
-    input_path = project_root / "data" / "processed" / "chars.parquet"
-    input_return_path = project_root / "data" / "raw" / "monthly_1990_to_2018.csv"
-    output_path = project_root / "data" / "processed" / "chars_clean.parquet"
-
-    lf = pl.scan_parquet(input_path)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    lf = pl.scan_parquet(CHARS_PARQUET)
 
     lf = drop_cols(lf)
     lf = filter_cols(lf)
-    feature_cols = [col for col in lf.collect_schema().names() if col not in METADATA_COLS and col not in TARGET_COL]
-    lf = fill_missing_vals(lf, feature_cols)
-    lf = rank_normalise_cols(lf, feature_cols)
+    features = feature_cols(lf.collect_schema().names())
+    lf = fill_missing_vals(lf, features)
+    lf = rank_normalise_cols(lf, features)
 
-    lf = join_returns(lf, input_return_path)
+    lf = join_returns(lf, RAW_RETURNS_CSV)
     lf = filter_returns(lf)
 
     clean_df = lf.collect()
-    check_nulls(clean_df, feature_cols + ["return"])
-    clean_df.write_parquet(output_path)
+    check_nulls(clean_df, features + [TARGET_COL])
+    clean_df.write_parquet(CHARS_CLEAN_PARQUET)
 
 if __name__ == "__main__":
     clean_data()

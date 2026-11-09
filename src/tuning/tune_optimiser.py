@@ -1,26 +1,21 @@
 import polars as pl
-from pathlib import Path
 from typing import List
 from src.portfolio.optimiser import SpecBBacktester
+from src.config import (
+    FACTOR_RETURNS_IS_PARQUET, FACTOR_RETURNS_OOS_PARQUET, GAMMA_GRID, KAPPA_GRID,
+    OPTIMISER_GRID_PARQUET,
+)
 
 def grid_search_pure_spec_b(
     df_factor_returns: pl.DataFrame,
-    gamma_vals: List[float] = [0.5, 1.0, 2.0, 5.0, 10.0],
-    kappa_vals: List[float] = [0.0001, 0.0003, 0.0005, 0.0010]
+    gamma_vals: List[float] = GAMMA_GRID,
+    kappa_vals: List[float] = KAPPA_GRID
 ) -> pl.DataFrame:
     records = []
 
     for gamma in gamma_vals:
         for kappa in kappa_vals:
-            backtester = SpecBBacktester(
-                gamma_f=gamma,
-                kappa_f=kappa,
-                gross_factor_leverage=1.0,
-                max_factor_weight=0.20,
-                mu_window_months=12,
-                cov_window_months=36,
-                min_history_months=36
-            )
+            backtester = SpecBBacktester(gamma_f=gamma, kappa_f=kappa)
 
             res = backtester.run_backtest(df_factor_returns)
             m = res["metrics"]
@@ -38,23 +33,14 @@ def grid_search_pure_spec_b(
 
 
 def main():
-    project_root = Path(__file__).resolve().parents[2]
-    
-    insample_path = project_root / "data" / "processed" / "factor_returns_insample.parquet"
-    oos_path = project_root / "data" / "processed" / "factor_returns_oos.parquet"
-    
-    target_path = insample_path if insample_path.exists() else oos_path
+    target_path = FACTOR_RETURNS_IS_PARQUET if FACTOR_RETURNS_IS_PARQUET.exists() else FACTOR_RETURNS_OOS_PARQUET
 
     if target_path.exists():
         print(f"Loading factor returns from: {target_path}")
         df_factor_returns = pl.read_parquet(target_path)
 
         print("\nRunning Pure Specification B Grid Search...")
-        df_results = grid_search_pure_spec_b(
-            df_factor_returns=df_factor_returns,
-            gamma_vals=[0.5, 1.0, 2.0, 5.0, 10.0],
-            kappa_vals=[0.0001, 0.0003, 0.0005, 0.0010]
-        )
+        df_results = grid_search_pure_spec_b(df_factor_returns)
 
         print("\n==========================================================================")
         print("             PURE SPECIFICATION B GRID SEARCH RESULTS                     ")
@@ -62,9 +48,8 @@ def main():
         print(df_results)
         print("==========================================================================")
 
-        out_path = project_root / "data" / "processed" / "spec_b_pure_grid_results.parquet"
-        df_results.write_parquet(out_path)
-        print(f"Grid search summary saved to: {out_path}")
+        df_results.write_parquet(OPTIMISER_GRID_PARQUET)
+        print(f"Grid search summary saved to: {OPTIMISER_GRID_PARQUET}")
     else:
         print(f"Error: Input parquet file not found at {target_path}")
 
