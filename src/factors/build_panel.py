@@ -3,6 +3,7 @@ import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
 from src.models.spherical_kmeans import SphericalKMeans
+from src.evaluation.metrics import annualised_stats
 
 OOS_START_DATE = 20060101
 OOS_END_DATE = 20181231
@@ -67,7 +68,6 @@ def run_backtest(n_clusters: int = 30, temperature: float = 0.35):
     print_layer_1_diagnostics(factor_returns_df, n_clusters)
 
 def print_layer_1_diagnostics(df: pl.DataFrame, n_clusters: int):
-    T = len(df)
     print("\n" + "="*70)
     print("    LAYER 1: OUT-OF-SAMPLE STANDALONE FACTOR DIAGNOSTICS (2006 - 2018)")
     print("="*70)
@@ -76,21 +76,15 @@ def print_layer_1_diagnostics(df: pl.DataFrame, n_clusters: int):
 
     for k in range(1, n_clusters + 1):
         col_name = f"Factor_{k}"
-        returns_seq = df.select(col_name).to_series().to_numpy()
-        
-        mean_monthly = np.mean(returns_seq)
-        std_monthly = np.std(returns_seq, ddof=1)
-        
-        ann_mean = mean_monthly * 12 * 100
-        ann_vol = std_monthly * np.sqrt(12) * 100
-        ann_sharpe = (mean_monthly / std_monthly) * np.sqrt(12) if std_monthly > 0 else 0.0
-        t_stat = (mean_monthly / (std_monthly / np.sqrt(T))) if std_monthly > 0 else 0.0
+        s = annualised_stats(df.select(col_name).to_series().to_numpy())
+        ann_mean, ann_vol = s["ann_return"] * 100, s["ann_vol"] * 100
+        ann_sharpe, t_stat = s["sharpe"], s["t_stat"]
 
         print(f"{col_name:<10} | {ann_mean:+15.2f}% | {ann_vol:11.2f}% | {ann_sharpe:10.2f} | {t_stat:10.2f}")
 
     F_mat = df.select([f"Factor_{k}" for k in range(1, n_clusters + 1)]).to_numpy()
     eq_port_ret = F_mat.mean(axis=1)
-    eq_sharpe = (eq_port_ret.mean() / eq_port_ret.std(ddof=1)) * np.sqrt(12)
+    eq_sharpe = annualised_stats(eq_port_ret)["sharpe"]
     
     print("="*70)
     print(f"  Equal-Weighted Combination OOS Sharpe Ratio (2006-2018): {eq_sharpe:.4f}")

@@ -42,6 +42,11 @@ cython_debug/
 
 # Logs and generated outputs
 *.log
-results/
+# results/: keep small outputs (figures, configs, tables) under version control
+results/*
+!results/.gitkeep
+!results/*.png
+!results/*.json
+!results/*.csv
 
 /data/

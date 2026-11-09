@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
 from src.models.spherical_kmeans import SphericalKMeans
+from src.evaluation.metrics import annualised_stats
 
 IS_START_DATE = 19900101
 IS_END_DATE = 20051231
@@ -62,7 +63,7 @@ def evaluate_is_grid(n_clusters_grid=[15, 20, 25, 30, 35], temperature_grid=[0.2
         avg_factor_sharpe = np.mean(factor_sharpes)
         
         eq_port_ret = F_is.mean(axis=1)
-        eq_sharpe = (eq_port_ret.mean() / eq_port_ret.std(ddof=1)) * np.sqrt(12)
+        eq_sharpe = annualised_stats(eq_port_ret)["sharpe"]
 
         grid_results.append({
             "K": k,

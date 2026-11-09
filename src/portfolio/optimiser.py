@@ -4,6 +4,7 @@ import cvxpy as cp
 from sklearn.covariance import LedoitWolf
 from pathlib import Path
 from typing import Dict
+from src.evaluation.metrics import annualised_stats
 
 class SpecBBacktester:
     def __init__(
@@ -103,10 +104,8 @@ class SpecBBacktester:
             schema=factor_cols
         ).with_columns(pl.Series(date_col, oos_dates))
 
-        returns_arr = np.array(oos_returns)
-        ann_ret = float(np.mean(returns_arr) * 12)
-        ann_vol = float(np.std(returns_arr, ddof=1) * np.sqrt(12))
-        sharpe = ann_ret / ann_vol if ann_vol > 0 else 0.0
+        stats = annualised_stats(np.array(oos_returns))
+        ann_ret, ann_vol, sharpe = float(stats["ann_return"]), float(stats["ann_vol"]), float(stats["sharpe"])
 
         return {
             "metrics": {
@@ -120,7 +119,7 @@ class SpecBBacktester:
         }
 
 
-if __name__ == "__main__":
+def main():
     project_root = Path(__file__).resolve().parents[2]
     facret_path = project_root / "data" / "processed" / "factor_returns_oos.parquet"
     
@@ -149,3 +148,7 @@ if __name__ == "__main__":
         out_dir.mkdir(parents=True, exist_ok=True)
         results["returns_df"].write_parquet(out_dir / "spec_b_oos_returns.parquet")
         results["weights_df"].write_parquet(out_dir / "spec_b_factor_weights.parquet")
+
+
+if __name__ == "__main__":
+    main()

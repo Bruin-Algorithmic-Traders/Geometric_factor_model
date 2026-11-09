@@ -1,6 +1,6 @@
 import numpy as np
 
-from config import MAX_ITER, TOL, N_CLUSTERS, RANDOM_STATE, TAU
+from src.config import MAX_ITER, TOL, N_CLUSTERS, RANDOM_STATE, TAU
 
 class SphericalKMeans:
     def __init__(self, n_clusters=N_CLUSTERS, max_iter=MAX_ITER, tol=TOL, random_state = RANDOM_STATE):

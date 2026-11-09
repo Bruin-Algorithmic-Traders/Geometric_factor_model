@@ -1,7 +1,7 @@
 import polars as pl
 from pathlib import Path
 from typing import List
-from optimiser import SpecBBacktester
+from src.portfolio.optimiser import SpecBBacktester
 
 def grid_search_pure_spec_b(
     df_factor_returns: pl.DataFrame,
@@ -37,7 +37,7 @@ def grid_search_pure_spec_b(
     return pl.DataFrame(records).sort("Sharpe", descending=True)
 
 
-if __name__ == "__main__":
+def main():
     project_root = Path(__file__).resolve().parents[2]
     
     insample_path = project_root / "data" / "processed" / "factor_returns_insample.parquet"
@@ -67,3 +67,7 @@ if __name__ == "__main__":
         print(f"Grid search summary saved to: {out_path}")
     else:
         print(f"Error: Input parquet file not found at {target_path}")
+
+
+if __name__ == "__main__":
+    main()
