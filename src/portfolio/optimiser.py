@@ -10,6 +10,15 @@ from src.config import (
     STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TC_BPS,
 )
 
+def stock_turnover(prev_permnos: np.ndarray, prev_w: np.ndarray, permnos: np.ndarray, w: np.ndarray) -> float:
+    """Σ|w - prev_w| over the union of stocks; a stock missing on one side has weight 0 there."""
+    all_permnos = np.union1d(prev_permnos, permnos)
+    before, after = np.zeros(len(all_permnos)), np.zeros(len(all_permnos))
+    before[np.searchsorted(all_permnos, prev_permnos)] = prev_w
+    after[np.searchsorted(all_permnos, permnos)] = w
+    return float(np.abs(after - before).sum())
+
+
 class SpecBBacktester:
     def __init__(
         self,
@@ -60,14 +69,18 @@ class SpecBBacktester:
 
         return a.value
 
-    def run_backtest(self, df_factor_returns: pl.DataFrame, date_col: str = "DATE") -> Dict:
+    def run_backtest(self, df_factor_returns: pl.DataFrame, holdings: list, date_col: str = "DATE") -> Dict:
+        """holdings[t] = (permnos, W, stock returns) for the month in row t of df_factor_returns (from build_panel).
+        Realised cost = tc × stock turnover, where last month's holdings are first drifted by their returns."""
         dates = df_factor_returns[date_col].to_list()
         factor_cols = [col for col in df_factor_returns.columns if col != date_col]
         F_matrix = df_factor_returns.select(factor_cols).to_numpy()
 
         T, M = F_matrix.shape
-        gross_returns, costs, net_returns, turnovers, weights_history, oos_dates = [], [], [], [], [], []
+        assert len(holdings) == T, "holdings must have one entry per factor-return row"
+        gross_returns, costs, net_returns, turnovers, factor_turnovers, weights_history, oos_dates = [], [], [], [], [], [], []
         a_prev = np.zeros(M)
+        prev_permnos, prev_w = np.array([], dtype=np.int64), np.array([])
 
         for t in range(self.min_history, T):
             hist_F = F_matrix[:t, :]
@@ -87,8 +100,12 @@ class SpecBBacktester:
             # 4. Realized performance & net return accounting (Eq. 20)
             realized_f_t = F_matrix[t, :]
             gross_return = float(np.dot(a_opt, realized_f_t))
-            turnover = float(np.sum(np.abs(a_opt - a_prev)))
+            permnos, W, stock_returns = holdings[t]
+            w = W @ a_opt
+            turnover = stock_turnover(prev_permnos, prev_w, permnos, w)
             cost = turnover * self.tc
+            factor_turnovers.append(float(np.sum(np.abs(a_opt - a_prev))))
+            prev_permnos, prev_w = permnos, w * (1 + stock_returns) / (1 + gross_return)
 
             gross_returns.append(gross_return)
             costs.append(cost)
@@ -104,7 +121,8 @@ class SpecBBacktester:
             "gross_return": gross_returns,
             "cost": costs,
             "strategy_return": net_returns,
-            "turnover": turnovers
+            "turnover": turnovers,
+            "factor_turnover": factor_turnovers
         })
 
         df_weights = pl.DataFrame(
@@ -123,7 +141,8 @@ class SpecBBacktester:
                 "Sharpe Ratio": sharpe,
                 "Gross Sharpe Ratio": gross_sharpe,
                 "Annualized Cost": float(np.mean(costs) * 12),
-                "Avg Monthly Turnover": float(np.mean(turnovers))
+                "Avg Monthly Turnover": float(np.mean(turnovers)),
+                "Avg Factor Turnover": float(np.mean(factor_turnovers))
             },
             "returns_df": df_returns,
             "weights_df": df_weights

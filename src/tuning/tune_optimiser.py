@@ -1,12 +1,12 @@
 import polars as pl
 from typing import List
+from src.factors.build_panel import load_panel
 from src.portfolio.optimiser import SpecBBacktester
-from src.config import (
-    FACTOR_RETURNS_PARQUET, GAMMA_GRID, IS_END_DATE, KAPPA_GRID, OPTIMISER_GRID_PARQUET,
-)
+from src.config import GAMMA_GRID, KAPPA_GRID, OPTIMISER_GRID_PARQUET
 
 def grid_search_pure_spec_b(
     df_factor_returns: pl.DataFrame,
+    holdings: list,
     gamma_vals: List[float] = GAMMA_GRID,
     kappa_vals: List[float] = KAPPA_GRID
 ) -> pl.DataFrame:
@@ -16,7 +16,7 @@ def grid_search_pure_spec_b(
         for kappa in kappa_vals:
             backtester = SpecBBacktester(gamma_f=gamma, kappa_penalty=kappa)
 
-            res = backtester.run_backtest(df_factor_returns)
+            res = backtester.run_backtest(df_factor_returns, holdings)
             m = res["metrics"]
 
             records.append({
@@ -33,11 +33,8 @@ def grid_search_pure_spec_b(
 
 
 def main():
-    if not FACTOR_RETURNS_PARQUET.exists():
-        raise FileNotFoundError(f"{FACTOR_RETURNS_PARQUET.name} not found, run `main.py panel` first")
-    df_factor_returns = pl.read_parquet(FACTOR_RETURNS_PARQUET).filter(pl.col("DATE") <= IS_END_DATE)
-
-    df_results = grid_search_pure_spec_b(df_factor_returns)
+    factor_returns, holdings = load_panel()  # in-sample only by default
+    df_results = grid_search_pure_spec_b(factor_returns, holdings)
     print(df_results)
     df_results.write_parquet(OPTIMISER_GRID_PARQUET)
 

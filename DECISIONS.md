@@ -23,6 +23,7 @@
 
 ## Optimiser and costs
 - κ is split into `KAPPA_PENALTY` (turnover penalty in the eq. 18 objective, tuned) and `TC_BPS` (realised cost per $ traded, fixed at 10 bp, with 5 and 20 bp as sensitivity), because the paper keeps the penalty (κ_f) and the realised cost (TC^(f), eq. 20) separate and one number cannot be both a tuned knob and a cost estimate.
+- The realised cost is charged on single-name turnover Σ|w_t − w_{t−1}| with w_t = W_t a_t (paper eq. 19–20), where last month's holdings are first drifted by their returns, so stocks entering/leaving the universe and price moves are counted; the objective's penalty stays on factor turnover as in eq. 18.
 
 ## Data cleaning
 All thresholds below were measured on in-sample data (1990–2005) only and are frozen in `src/config.py`. Evidence is in `notebooks/01`–`07`.
