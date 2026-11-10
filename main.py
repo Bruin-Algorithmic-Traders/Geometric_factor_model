@@ -19,8 +19,8 @@ def stage_tune_optimiser():
 
 
 def stage_panel():
-    from src.factors.build_panel import run_backtest
-    run_backtest()
+    from src.factors.build_panel import build_panel
+    print(build_panel())
 
 
 def stage_backtest():
