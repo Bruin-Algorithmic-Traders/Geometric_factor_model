@@ -14,15 +14,16 @@ def grid_search_pure_spec_b(
 
     for gamma in gamma_vals:
         for kappa in kappa_vals:
-            backtester = SpecBBacktester(gamma_f=gamma, kappa_f=kappa)
+            backtester = SpecBBacktester(gamma_f=gamma, kappa_penalty=kappa)
 
             res = backtester.run_backtest(df_factor_returns)
             m = res["metrics"]
 
             records.append({
                 "Gamma": gamma,
-                "Kappa": kappa,
+                "Kappa_penalty": kappa,
                 "Sharpe": round(m["Sharpe Ratio"], 4),
+                "Gross_Sharpe": round(m["Gross Sharpe Ratio"], 4),
                 "Ann_Return": round(m["Annualized Return"], 4),
                 "Ann_Vol": round(m["Annualized Volatility"], 4),
                 "Avg_Turnover": round(m["Avg Monthly Turnover"], 4)

@@ -74,7 +74,8 @@ MAX_STOCK_WEIGHT = 0.10   # error if one stock exceeds this share of a factor's 
 # Factor-timing optimiser (paper eq. 18)
 # -----------------------------------------------------------------------------
 GAMMA_F = 1.0             # factor risk aversion
-KAPPA_F = 0.0003          # turnover penalty and realised cost per unit turnover
+KAPPA_PENALTY = 0.0003    # turnover penalty in the eq. 18 objective (tuned)
+TC_BPS = 10               # realised one-way trading cost in bp per $ traded (fixed, not tuned)
 GROSS_FACTOR_LEVERAGE = 1.0   # L_a
 MAX_FACTOR_WEIGHT = 0.20      # a_max
 MU_WINDOW_MONTHS = 12

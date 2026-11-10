@@ -21,6 +21,9 @@
 - Keep all K factors even though Σ_k c_k w_k = 0 each month: with ‖a‖₁ ≤ 1 the optimiser cannot exploit the dependence (in-sample Sharpe 0.369 with 30 factors vs 0.370 with 29, same gross and turnover); the equal-weight mix of all factors is ~10% gross, so it is never used as a tuning score or benchmark (`notebooks/10`).
 - No per-stock cap: the largest single-stock weight in any factor is at most 5.2% of its gross over all in-sample months, K ∈ {15, 30, 35} and τ ∈ {0.01…100} (typically under 1%), so a cap would never bind; instead `compute_weights` raises an error if any stock exceeds 10% (`notebooks/09`).
 
+## Optimiser and costs
+- κ is split into `KAPPA_PENALTY` (turnover penalty in the eq. 18 objective, tuned) and `TC_BPS` (realised cost per $ traded, fixed at 10 bp, with 5 and 20 bp as sensitivity), because the paper keeps the penalty (κ_f) and the realised cost (TC^(f), eq. 20) separate and one number cannot be both a tuned knob and a cost estimate.
+
 ## Data cleaning
 All thresholds below were measured on in-sample data (1990–2005) only and are frozen in `src/config.py`. Evidence is in `notebooks/01`–`07`.
 

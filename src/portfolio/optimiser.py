@@ -5,16 +5,17 @@ from sklearn.covariance import LedoitWolf
 from typing import Dict
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    COV_WINDOW_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_F,
+    COV_WINDOW_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_PENALTY,
     MAX_FACTOR_WEIGHT, MIN_HISTORY_MONTHS, MU_WINDOW_MONTHS, PROCESSED_DIR,
-    STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET,
+    STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TC_BPS,
 )
 
 class SpecBBacktester:
     def __init__(
         self,
         gamma_f: float = GAMMA_F,                              # Factor risk aversion
-        kappa_f: float = KAPPA_F,                              # Turnover penalty / cost per unit turnover
+        kappa_penalty: float = KAPPA_PENALTY,                  # Turnover penalty in the objective
+        tc_bps: float = TC_BPS,                                # Realised cost, bp per $ traded
         gross_factor_leverage: float = GROSS_FACTOR_LEVERAGE,  # Max gross exposure cap (L_a)
         max_factor_weight: float = MAX_FACTOR_WEIGHT,          # Single-factor concentration cap (a_max)
         mu_window_months: int = MU_WINDOW_MONTHS,              # Rolling window for mu_hat
@@ -22,7 +23,8 @@ class SpecBBacktester:
         min_history_months: int = MIN_HISTORY_MONTHS           # Initial burn-in history
     ):
         self.gamma_f = gamma_f
-        self.kappa_f = kappa_f
+        self.kappa_penalty = kappa_penalty
+        self.tc = tc_bps / 1e4
         self.L_a = gross_factor_leverage
         self.a_max = max_factor_weight
         self.mu_window = mu_window_months
@@ -41,7 +43,7 @@ class SpecBBacktester:
         # Objective Function: Expected Return - Risk Penalty - L1 Turnover Penalty (Eq. 18)
         expected_ret = a @ mu_f
         factor_risk = (self.gamma_f / 2.0) * cp.quad_form(a, cp.psd_wrap(sigma_f))
-        turnover_penalty = self.kappa_f * cp.norm(a - a_prev, 1)
+        turnover_penalty = self.kappa_penalty * cp.norm(a - a_prev, 1)
 
         objective = cp.Maximize(expected_ret - factor_risk - turnover_penalty)
 
@@ -64,7 +66,7 @@ class SpecBBacktester:
         F_matrix = df_factor_returns.select(factor_cols).to_numpy()
 
         T, M = F_matrix.shape
-        oos_returns, turnovers, weights_history, oos_dates = [], [], [], []
+        gross_returns, costs, net_returns, turnovers, weights_history, oos_dates = [], [], [], [], [], []
         a_prev = np.zeros(M)
 
         for t in range(self.min_history, T):
@@ -84,13 +86,13 @@ class SpecBBacktester:
 
             # 4. Realized performance & net return accounting (Eq. 20)
             realized_f_t = F_matrix[t, :]
-            raw_return = float(np.dot(a_opt, realized_f_t))
-
+            gross_return = float(np.dot(a_opt, realized_f_t))
             turnover = float(np.sum(np.abs(a_opt - a_prev)))
-            tc = turnover * self.kappa_f
-            net_return = raw_return - tc
+            cost = turnover * self.tc
 
-            oos_returns.append(net_return)
+            gross_returns.append(gross_return)
+            costs.append(cost)
+            net_returns.append(gross_return - cost)
             turnovers.append(turnover)
             weights_history.append(a_opt)
             oos_dates.append(dates[t])
@@ -99,7 +101,9 @@ class SpecBBacktester:
 
         df_returns = pl.DataFrame({
             date_col: oos_dates,
-            "strategy_return": oos_returns,
+            "gross_return": gross_returns,
+            "cost": costs,
+            "strategy_return": net_returns,
             "turnover": turnovers
         })
 
@@ -108,14 +112,17 @@ class SpecBBacktester:
             schema=factor_cols
         ).with_columns(pl.Series(date_col, oos_dates))
 
-        stats = annualised_stats(np.array(oos_returns))
+        stats = annualised_stats(np.array(net_returns))
         ann_ret, ann_vol, sharpe = float(stats["ann_return"]), float(stats["ann_vol"]), float(stats["sharpe"])
+        gross_sharpe = float(annualised_stats(np.array(gross_returns))["sharpe"])
 
         return {
             "metrics": {
                 "Annualized Return": ann_ret,
                 "Annualized Volatility": ann_vol,
                 "Sharpe Ratio": sharpe,
+                "Gross Sharpe Ratio": gross_sharpe,
+                "Annualized Cost": float(np.mean(costs) * 12),
                 "Avg Monthly Turnover": float(np.mean(turnovers))
             },
             "returns_df": df_returns,
