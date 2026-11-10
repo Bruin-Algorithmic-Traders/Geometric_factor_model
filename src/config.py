@@ -14,6 +14,7 @@ CHARS_PARQUET = PROCESSED_DIR / "chars.parquet"
 CHARS_CLEAN_PARQUET = PROCESSED_DIR / "chars_clean.parquet"
 FACTOR_RETURNS_PARQUET = PROCESSED_DIR / "factor_returns.parquet"
 CENTROIDS_NPZ = PROCESSED_DIR / "centroids.npz"
+REBUILT_HISTORY_NPY = PROCESSED_DIR / "rebuilt_history.npy"
 HOLDINGS_PARQUET = PROCESSED_DIR / "holdings.parquet"
 PANEL_DIAGNOSTICS_PARQUET = PROCESSED_DIR / "panel_diagnostics.parquet"
 FACTOR_RETURNS_OOS_PARQUET = PROCESSED_DIR / "factor_returns_oos.parquet"
@@ -82,6 +83,7 @@ MAX_FACTOR_WEIGHT = 0.20      # a_max
 MU_WINDOW_MONTHS = 12
 COV_WINDOW_MONTHS = 36
 MIN_HISTORY_MONTHS = 36
+HISTORY_MONTHS = 60          # months of rebuilt history kept per month (μ̂ window and EWMA cut-off)
 
 # -----------------------------------------------------------------------------
 # Tuning grids

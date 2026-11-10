@@ -11,7 +11,7 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, tau_grid=TAU_GRID) -> pl.DataFrame:
     """Score each (K, τ) by the in-sample optimiser Sharpe at default γ and κ."""
     records = []
     for k, tau in itertools.product(n_clusters_grid, tau_grid):
-        factor_returns, _, _, holdings = build_panel(n_clusters=k, tau=tau)
+        factor_returns, _, _, holdings, _ = build_panel(n_clusters=k, tau=tau)
         res = SpecBBacktester().run_backtest(factor_returns, holdings)
         m = res["metrics"]
         records.append({"K": k, "tau": tau, "sharpe": m["Sharpe Ratio"], "ann_return": m["Annualized Return"],

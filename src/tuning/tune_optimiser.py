@@ -33,7 +33,7 @@ def grid_search_pure_spec_b(
 
 
 def main():
-    factor_returns, holdings = load_panel()  # in-sample only by default
+    factor_returns, holdings, _ = load_panel()  # in-sample only by default
     df_results = grid_search_pure_spec_b(factor_returns, holdings)
     print(df_results)
     df_results.write_parquet(OPTIMISER_GRID_PARQUET)
