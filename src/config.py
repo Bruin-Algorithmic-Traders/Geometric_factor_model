@@ -6,7 +6,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-RESULTS_DIR = PROJECT_ROOT / "results"
 
 RAW_CHARS_GLOB = RAW_DIR / "characteristics_by_month" / "*.csv"
 RAW_RETURNS_CSV = RAW_DIR / "monthly_1990_to_2018.csv"
@@ -30,27 +29,17 @@ OOS_END_DATE = 20181231
 # -----------------------------------------------------------------------------
 # Column groups
 # -----------------------------------------------------------------------------
-METADATA_COLS = ["DATE", "permno"]
+METADATA_COLS = ["DATE", "permno", "sic2"]
 TARGET_COL = "return"
 
 DROPPED_COLS = [
-    "sic2",        # Industry id
-    "betasq",      # Duplicate of beta
-    "pchsaleinv",  # Duplicate of pchsale_pchinvt
-    "securedind",  # Duplicate flag for secured
-    "herf",        # Industry-level macro constant
-    "indmom",      # Industry-level macro constant
-    "rd_mve",      # Duplicate R&D ratio
-    "rd_sale",     # Duplicate R&D ratio
-    "sin",         # >98% sparse flag
-    "divi",        # >98% sparse flag
-    "divo",        # >98% sparse flag
-    "ps",          # Piotroski composite score
-    "absacc",      # Absolute accruals (destroys sign of acc)
-    "convind",     # Sparse convertible indicator
+    # over 30% missing in-sample after the row filter
+    "realestate", "rd_sale", "rd_mve", "stdacc", "stdcf", "orgcap", "secured", "grltnoa",
+    # binary flags with under 10% ones
+    "sin", "divi", "divo", "rd",
+    # fewest drops so no pair has |avg rank corr| > 0.85; ties keep the higher in-sample |IC t|
+    "betasq", "pchsale_pchinvt", "dolvol", "pchquick", "mvel1", "turn", "retvol", "quick",
 ]
-
-ZERO_FILL_COLS = ["rd"]
 
 
 def feature_cols(columns: list[str]) -> list[str]:
@@ -60,8 +49,10 @@ def feature_cols(columns: list[str]) -> list[str]:
 # -----------------------------------------------------------------------------
 # Universe filters (clean.py)
 # -----------------------------------------------------------------------------
-MIN_SIZE_QUANTILE = 0.2   # drop firms below this mvel1 quantile each month
-MAX_ZEROTRADE = 10        # drop firms with zerotrade >= this
+MIN_SIZE_QUANTILE = 0.2       # drop firms below this mvel1 quantile each month
+MAX_ZEROTRADE = 10            # drop firms with zerotrade >= this
+MAX_ROW_MISSING_SHARE = 0.5   # drop firm-months missing more than this share of raw characteristics
+UNKNOWN_SIC2 = -1
 
 # -----------------------------------------------------------------------------
 # Spherical k-means + memberships

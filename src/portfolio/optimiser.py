@@ -30,9 +30,9 @@ class SpecBBacktester:
         self.min_history = min_history_months
 
     def _solve_equation_18(
-        self, 
-        mu_f: np.ndarray, 
-        sigma_f: np.ndarray, 
+        self,
+        mu_f: np.ndarray,
+        sigma_f: np.ndarray,
         a_prev: np.ndarray
     ) -> np.ndarray:
         M = len(mu_f)
@@ -62,14 +62,14 @@ class SpecBBacktester:
         dates = df_factor_returns[date_col].to_list()
         factor_cols = [col for col in df_factor_returns.columns if col != date_col]
         F_matrix = df_factor_returns.select(factor_cols).to_numpy()
-        
+
         T, M = F_matrix.shape
         oos_returns, turnovers, weights_history, oos_dates = [], [], [], []
         a_prev = np.zeros(M)
 
         for t in range(self.min_history, T):
             hist_F = F_matrix[:t, :]
-            
+
             # 1. Rolling window expected factor returns (raw sample mean)
             mu_slice = hist_F[-self.mu_window:, :] if t >= self.mu_window else hist_F
             mu_hat = np.mean(mu_slice, axis=0)
@@ -85,7 +85,7 @@ class SpecBBacktester:
             # 4. Realized performance & net return accounting (Eq. 20)
             realized_f_t = F_matrix[t, :]
             raw_return = float(np.dot(a_opt, realized_f_t))
-            
+
             turnover = float(np.sum(np.abs(a_opt - a_prev)))
             tc = turnover * self.kappa_f
             net_return = raw_return - tc
@@ -104,7 +104,7 @@ class SpecBBacktester:
         })
 
         df_weights = pl.DataFrame(
-            np.array(weights_history), 
+            np.array(weights_history),
             schema=factor_cols
         ).with_columns(pl.Series(date_col, oos_dates))
 

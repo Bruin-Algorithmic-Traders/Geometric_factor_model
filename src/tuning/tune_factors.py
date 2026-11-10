@@ -10,7 +10,6 @@ from src.config import (
 )
 
 def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
-
     print(f"Loading data for In-Sample Tuning ({IS_START_DATE} to {IS_END_DATE})...")
     df_all = pl.read_parquet(CHARS_CLEAN_PARQUET).filter(
         (pl.col("DATE") >= IS_START_DATE) & (pl.col("DATE") <= IS_END_DATE)
@@ -18,12 +17,8 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
 
     features = feature_cols(df_all.columns)
     builder = FactorBuilder()
-
-
     grid_results = []
-
     monthly_data = []
-
     for date, group in df_all.group_by("DATE", maintain_order=True):
         X = group.select(features).to_numpy()
         returns = group.select(TARGET_COL).to_numpy().flatten()
@@ -36,7 +31,7 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
         previous_centroids = None
         is_factor_returns = []
 
-        for date, X, returns in monthly_data:
+        for _, X, returns in monthly_data:
             if len(returns) < k:
                 continue
 
@@ -52,13 +47,13 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
             is_factor_returns.append(f_t)
 
         F_is = np.array(is_factor_returns)
-        
+
         mean_monthly = F_is.mean(axis=0)
         std_monthly = F_is.std(axis=0, ddof=1)
-        
+
         factor_sharpes = np.where(std_monthly > 0, (mean_monthly / std_monthly) * np.sqrt(12), 0.0)
         avg_factor_sharpe = np.mean(factor_sharpes)
-        
+
         eq_port_ret = F_is.mean(axis=1)
         eq_sharpe = annualised_stats(eq_port_ret)["sharpe"]
 
@@ -74,12 +69,12 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
         print(f"Config (K={k:<2}, Temp={temp:<3.1f}) | Avg Factor Sharpe: {avg_factor_sharpe:+.3f} | EQ Port Sharpe: {eq_sharpe:+.3f}")
 
     results_df = pl.DataFrame(grid_results).sort("EQ_Portfolio_Sharpe", descending=True)
-    
+
     print("\n" + "="*70)
     print("           IN-SAMPLE HYPERPARAMETER GRID SEARCH RESULTS")
     print("="*70)
     print(results_df)
-    
+
     best_config = results_df.row(0, named=True)
     print(f"\nOptimal In-Sample Config: K = {best_config['K']}, Temperature = {best_config['Temperature']}")
     return best_config

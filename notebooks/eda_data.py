@@ -37,7 +37,7 @@ def returns_lazy() -> pl.LazyFrame:
     return pl.scan_csv(RAW_RETURNS_CSV).select(
         "permno",
         (pl.col("DATE") // 100).alias("ym"),
-        pl.col("monthly_ret").cast(pl.Float64, strict=False).alias("ret"),
+        pl.col("monthly_ret").alias("ret"),
     )
 
 
@@ -48,12 +48,10 @@ def size_zerotrade_filter(lf: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
-def is_universe(with_returns: bool = True) -> pl.DataFrame:
-    """In-sample firm-months after the size/zerotrade filter, optionally keeping only rows with a same-month return."""
-    lf = size_zerotrade_filter(chars_lazy()).filter(pl.col("DATE") <= IS_END_DATE)
-    if with_returns:
-        lf = lf.join(returns_lazy(), on=["permno", "ym"], how="inner").filter(pl.col("ret").is_not_nan())
-    return lf.collect()
+def is_universe() -> pl.DataFrame:
+    """In-sample firm-months, same order as clean.py: rows with a return, then the size/zerotrade filter."""
+    lf = chars_lazy().filter(pl.col("DATE") <= IS_END_DATE).join(returns_lazy(), on=["permno", "ym"], how="inner")
+    return size_zerotrade_filter(lf).collect()
 
 
 def add_n_missing(df: pl.DataFrame, chars: list[str]) -> pl.DataFrame:

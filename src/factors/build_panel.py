@@ -17,7 +17,7 @@ def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
     features = feature_cols(df_all.columns)
 
     monthly_data = []
-    
+
     for date, group in df_all.group_by("DATE", maintain_order=True):
         X = group.select(features).to_numpy()
         returns = group.select(TARGET_COL).to_numpy().flatten()
@@ -40,7 +40,7 @@ def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
 
         X_norm = X / np.maximum(np.linalg.norm(X, axis=1, keepdims=True), 1e-12)
         sims = (X_norm @ model.centroids.T) * temperature
-        
+
         exp_sims = np.exp(sims - np.max(sims, axis=1, keepdims=True))
         Pi = exp_sims / exp_sims.sum(axis=1, keepdims=True)
 
@@ -79,7 +79,7 @@ def print_layer_1_diagnostics(df: pl.DataFrame, n_clusters: int):
     F_mat = df.select([f"Factor_{k}" for k in range(1, n_clusters + 1)]).to_numpy()
     eq_port_ret = F_mat.mean(axis=1)
     eq_sharpe = annualised_stats(eq_port_ret)["sharpe"]
-    
+
     print("="*70)
     print(f"  Equal-Weighted Combination OOS Sharpe Ratio (2006-2018): {eq_sharpe:.4f}")
     print("="*70 + "\n")

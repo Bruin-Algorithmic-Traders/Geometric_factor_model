@@ -75,5 +75,3 @@ class SphericalKMeans:
         sim = X_norm @ self.centroids.T
         exp_sim = np.exp((sim - np.max(sim, axis=1, keepdims=True)) / tau)
         return exp_sim / np.sum(exp_sim, axis=1, keepdims=True)
-        
-    
