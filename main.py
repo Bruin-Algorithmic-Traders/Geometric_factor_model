@@ -20,7 +20,9 @@ def stage_tune_optimiser():
 
 def stage_panel():
     from src.factors.build_panel import build_panel
-    print(build_panel())
+    factor_returns, diagnostics = build_panel()
+    print(factor_returns)
+    print(diagnostics.describe())
 
 
 def stage_backtest():
