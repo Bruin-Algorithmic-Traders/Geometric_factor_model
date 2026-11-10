@@ -1,4 +1,3 @@
-"""All hyperparameters, paths and column groups. Import from here; don't hard-code in scripts."""
 from pathlib import Path
 
 # -----------------------------------------------------------------------------
@@ -55,7 +54,6 @@ ZERO_FILL_COLS = ["rd"]
 
 
 def feature_cols(columns: list[str]) -> list[str]:
-    """Everything that is not metadata or the target is a feature."""
     return [c for c in columns if c not in METADATA_COLS and c != TARGET_COL]
 
 

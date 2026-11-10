@@ -1,4 +1,3 @@
-"""Single entry point. Usage: uv run python main.py <stage>"""
 import argparse
 
 

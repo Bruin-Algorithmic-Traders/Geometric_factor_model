@@ -5,7 +5,7 @@ from src.models.spherical_kmeans import SphericalKMeans
 from src.config import CHARS_CLEAN_PARQUET, MAX_ITER, RANDOM_STATE, TARGET_COL, feature_cols
 
 target_date = 19920131
-n_test_clusters = 10  # small K so the one-month check is quick and readable
+n_test_clusters = 10
 
 print("Loading data...")
 df = pl.read_parquet(CHARS_CLEAN_PARQUET).filter(pl.col("DATE") == target_date).drop(["DATE", "permno"])
