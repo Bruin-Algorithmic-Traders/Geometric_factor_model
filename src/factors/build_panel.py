@@ -1,11 +1,11 @@
 import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
-from src.models.spherical_kmeans import SphericalKMeans
+from src.models.spherical_kmeans import fit_monthly
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    CHARS_CLEAN_PARQUET, FACTOR_RETURNS_OOS_PARQUET, MAX_ITER, N_CLUSTERS,
-    OOS_END_DATE, OOS_START_DATE, RANDOM_STATE, TAU, TARGET_COL, feature_cols,
+    CHARS_CLEAN_PARQUET, FACTOR_RETURNS_OOS_PARQUET, N_CLUSTERS,
+    OOS_END_DATE, OOS_START_DATE, TAU, TARGET_COL, feature_cols,
 )
 
 def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
@@ -27,22 +27,15 @@ def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
     print(f"Locked Parameters: K = {n_clusters}, Temperature = {temperature}\n")
 
     builder = FactorBuilder()
-    previous_centroids = None
     results = []
+    min_match_cos = []
+    monthly_data = [m for m in monthly_data if len(m[2]) >= n_clusters]
+    fits = fit_monthly([X for _, X, _ in monthly_data], n_clusters)
 
-    for idx, (date, X, returns) in enumerate(monthly_data):
-        if len(returns) < n_clusters:
-            continue
-
-        model = SphericalKMeans(n_clusters=n_clusters, max_iter=MAX_ITER, random_state=RANDOM_STATE)
-        model.fit(X, init_centroids=previous_centroids)
-        previous_centroids = model.centroids.copy()
-
-        X_norm = X / np.maximum(np.linalg.norm(X, axis=1, keepdims=True), 1e-12)
-        sims = (X_norm @ model.centroids.T) * temperature
-
-        exp_sims = np.exp(sims - np.max(sims, axis=1, keepdims=True))
-        Pi = exp_sims / exp_sims.sum(axis=1, keepdims=True)
+    for idx, ((date, X, returns), (model, matched)) in enumerate(zip(monthly_data, fits)):
+        if matched is not None:
+            min_match_cos.append(matched.min())
+        Pi = model.transform(X, temperature)
 
         W = builder.compute_weights(Pi)
         f_t = builder.compute_factor_returns(W, returns)
@@ -55,6 +48,8 @@ def run_backtest(n_clusters: int = N_CLUSTERS, temperature: float = TAU):
         if (idx + 1) % 50 == 0 or (idx + 1) == len(monthly_data):
             print(f"Processed {idx + 1}/{len(monthly_data)} OOS months...")
 
+    print(f"Centroid match vs previous month: median monthly min cos {np.median(min_match_cos):.3f}, "
+          f"months with a min below 0.8: {int(np.sum(np.array(min_match_cos) < 0.8))}")
     factor_returns_df = pl.DataFrame(results)
     factor_returns_df.write_parquet(FACTOR_RETURNS_OOS_PARQUET, compression="zstd")
     print(f"\nSaved OOS factor return time series to: {FACTOR_RETURNS_OOS_PARQUET}")

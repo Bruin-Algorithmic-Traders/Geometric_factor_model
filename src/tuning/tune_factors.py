@@ -2,11 +2,10 @@ import itertools
 import numpy as np
 import polars as pl
 from src.factors.spec_b import FactorBuilder
-from src.models.spherical_kmeans import SphericalKMeans
+from src.models.spherical_kmeans import fit_monthly
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    CHARS_CLEAN_PARQUET, IS_END_DATE, IS_START_DATE, K_GRID, MAX_ITER, RANDOM_STATE,
-    TAU_GRID, TARGET_COL, feature_cols,
+    CHARS_CLEAN_PARQUET, IS_END_DATE, IS_START_DATE, K_GRID, TAU_GRID, TARGET_COL, feature_cols,
 )
 
 def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
@@ -28,19 +27,11 @@ def evaluate_is_grid(n_clusters_grid=K_GRID, temperature_grid=TAU_GRID):
     print(f"Testing {len(param_combinations)} hyperparameter combinations across {len(monthly_data)} IS months...\n")
 
     for k, temp in param_combinations:
-        previous_centroids = None
         is_factor_returns = []
+        months_k = [m for m in monthly_data if len(m[2]) >= k]
 
-        for _, X, returns in monthly_data:
-            if len(returns) < k:
-                continue
-
-            model = SphericalKMeans(n_clusters=k, max_iter=MAX_ITER, random_state=RANDOM_STATE)
-            model.fit(X, init_centroids=previous_centroids)
-            previous_centroids = model.centroids.copy()
-
-            Pi = model.transform(X) ** temp
-            Pi = Pi / Pi.sum(axis=1, keepdims=True)
+        for (_, X, returns), (model, _) in zip(months_k, fit_monthly([X for _, X, _ in months_k], k)):
+            Pi = model.transform(X, temp)
 
             W = builder.compute_weights(Pi)
             f_t = builder.compute_factor_returns(W, returns)

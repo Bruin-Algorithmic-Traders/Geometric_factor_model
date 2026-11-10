@@ -58,13 +58,15 @@ UNKNOWN_SIC2 = -1
 # Spherical k-means + memberships
 # -----------------------------------------------------------------------------
 N_CLUSTERS = 30
-TAU = 0.35
+TAU = 10
 MAX_ITER = 100
 TOL = 1e-4
 RANDOM_STATE = 42
+POOL_MONTHS = 3             # fit clusters on the last 3 months of firms stacked together
+N_INIT = 10                 # k-means++ restarts for a cold-start fit (first month only)
 
 # Factor construction
-FACTOR_W_MAX = None       # per-stock cap in Spec B factors (None = off)
+MAX_STOCK_WEIGHT = 0.10   # error if one stock exceeds this share of a factor's gross (in-sample worst is 5.2% at K=35, τ=100)
 
 # -----------------------------------------------------------------------------
 # Factor-timing optimiser (paper eq. 18)
@@ -81,6 +83,6 @@ MIN_HISTORY_MONTHS = 36
 # Tuning grids
 # -----------------------------------------------------------------------------
 K_GRID = [15, 20, 25, 30, 35]
-TAU_GRID = [0.2, 0.35, 0.5, 0.75, 1.0]
+TAU_GRID = [1, 3, 10, 30, 100]
 GAMMA_GRID = [0.5, 1.0, 2.0, 5.0, 10.0]
 KAPPA_GRID = [0.0001, 0.0003, 0.0005, 0.0010]
