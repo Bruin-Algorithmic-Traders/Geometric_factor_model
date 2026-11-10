@@ -10,7 +10,7 @@ def stage_data():
 
 def stage_tune_factors():
     from src.tuning.tune_factors import evaluate_is_grid
-    evaluate_is_grid()
+    print(evaluate_is_grid())
 
 
 def stage_tune_optimiser():
