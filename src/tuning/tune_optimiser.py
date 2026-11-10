@@ -2,8 +2,7 @@ import polars as pl
 from typing import List
 from src.portfolio.optimiser import SpecBBacktester
 from src.config import (
-    FACTOR_RETURNS_IS_PARQUET, FACTOR_RETURNS_OOS_PARQUET, GAMMA_GRID, KAPPA_GRID,
-    OPTIMISER_GRID_PARQUET,
+    FACTOR_RETURNS_PARQUET, GAMMA_GRID, IS_END_DATE, KAPPA_GRID, OPTIMISER_GRID_PARQUET,
 )
 
 def grid_search_pure_spec_b(
@@ -33,25 +32,13 @@ def grid_search_pure_spec_b(
 
 
 def main():
-    target_path = FACTOR_RETURNS_IS_PARQUET if FACTOR_RETURNS_IS_PARQUET.exists() else FACTOR_RETURNS_OOS_PARQUET
+    if not FACTOR_RETURNS_PARQUET.exists():
+        raise FileNotFoundError(f"{FACTOR_RETURNS_PARQUET.name} not found, run `main.py panel` first")
+    df_factor_returns = pl.read_parquet(FACTOR_RETURNS_PARQUET).filter(pl.col("DATE") <= IS_END_DATE)
 
-    if target_path.exists():
-        print(f"Loading factor returns from: {target_path}")
-        df_factor_returns = pl.read_parquet(target_path)
-
-        print("\nRunning Pure Specification B Grid Search...")
-        df_results = grid_search_pure_spec_b(df_factor_returns)
-
-        print("\n==========================================================================")
-        print("             PURE SPECIFICATION B GRID SEARCH RESULTS                     ")
-        print("==========================================================================")
-        print(df_results)
-        print("==========================================================================")
-
-        df_results.write_parquet(OPTIMISER_GRID_PARQUET)
-        print(f"Grid search summary saved to: {OPTIMISER_GRID_PARQUET}")
-    else:
-        print(f"Error: Input parquet file not found at {target_path}")
+    df_results = grid_search_pure_spec_b(df_factor_returns)
+    print(df_results)
+    df_results.write_parquet(OPTIMISER_GRID_PARQUET)
 
 
 if __name__ == "__main__":
