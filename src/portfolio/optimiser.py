@@ -5,8 +5,8 @@ from sklearn.covariance import LedoitWolf
 from typing import Dict
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    COV_WINDOW_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_PENALTY,
-    MAX_FACTOR_WEIGHT, MIN_HISTORY_MONTHS, MU_WINDOW_MONTHS, PROCESSED_DIR,
+    COV_HALF_LIFE_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_PENALTY,
+    MAX_FACTOR_WEIGHT, MIN_HISTORY_MONTHS, PROCESSED_DIR,
     STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TC_BPS,
 )
 
@@ -19,6 +19,18 @@ def stock_turnover(prev_permnos: np.ndarray, prev_w: np.ndarray, permnos: np.nda
     return float(np.abs(after - before).sum())
 
 
+def estimate_moments(history: np.ndarray, half_life: float = COV_HALF_LIFE_MONTHS) -> tuple[np.ndarray, np.ndarray]:
+    """μ̂ = plain mean of the (rebuilt) history; Σ̂ = exponentially weighted covariance with Ledoit-Wolf shrinkage.
+    history: months x K, oldest first; rows with NaN (before the sample) are ignored."""
+    history = history[~np.isnan(history).any(axis=1)]
+    mu_hat = history.mean(axis=0)
+    weights = 0.5 ** (np.arange(len(history))[::-1] / half_life)
+    weights /= weights.sum()
+    centred = history - weights @ history
+    sigma_hat = LedoitWolf(assume_centered=True).fit(centred * np.sqrt(weights * len(history))[:, None]).covariance_
+    return mu_hat, sigma_hat
+
+
 class SpecBBacktester:
     def __init__(
         self,
@@ -27,8 +39,6 @@ class SpecBBacktester:
         tc_bps: float = TC_BPS,                                # Realised cost, bp per $ traded
         gross_factor_leverage: float = GROSS_FACTOR_LEVERAGE,  # Max gross exposure cap (L_a)
         max_factor_weight: float = MAX_FACTOR_WEIGHT,          # Single-factor concentration cap (a_max)
-        mu_window_months: int = MU_WINDOW_MONTHS,              # Rolling window for mu_hat
-        cov_window_months: int = COV_WINDOW_MONTHS,            # Rolling window for Sigma_hat
         min_history_months: int = MIN_HISTORY_MONTHS           # Initial burn-in history
     ):
         self.gamma_f = gamma_f
@@ -36,8 +46,6 @@ class SpecBBacktester:
         self.tc = tc_bps / 1e4
         self.L_a = gross_factor_leverage
         self.a_max = max_factor_weight
-        self.mu_window = mu_window_months
-        self.cov_window = cov_window_months
         self.min_history = min_history_months
 
     def _solve_equation_18(
@@ -69,35 +77,27 @@ class SpecBBacktester:
 
         return a.value
 
-    def run_backtest(self, df_factor_returns: pl.DataFrame, holdings: list, date_col: str = "DATE") -> Dict:
-        """holdings[t] = (permnos, W, stock returns) for the month in row t of df_factor_returns (from build_panel).
+    def run_backtest(self, df_factor_returns: pl.DataFrame, holdings: list, rebuilt: np.ndarray, date_col: str = "DATE") -> Dict:
+        """holdings[t] = (permnos, W, stock returns) and rebuilt[t] = past months' factor returns re-formed with month t's
+        centroids, both for the month in row t of df_factor_returns (from build_panel). μ̂ and Σ̂ come from rebuilt[t].
         Realised cost = tc × stock turnover, where last month's holdings are first drifted by their returns."""
         dates = df_factor_returns[date_col].to_list()
         factor_cols = [col for col in df_factor_returns.columns if col != date_col]
         F_matrix = df_factor_returns.select(factor_cols).to_numpy()
 
         T, M = F_matrix.shape
-        assert len(holdings) == T, "holdings must have one entry per factor-return row"
+        assert len(holdings) == T and len(rebuilt) == T, "holdings and rebuilt need one entry per factor-return row"
         gross_returns, costs, net_returns, turnovers, factor_turnovers, weights_history, oos_dates = [], [], [], [], [], [], []
         a_prev = np.zeros(M)
         prev_permnos, prev_w = np.array([], dtype=np.int64), np.array([])
 
         for t in range(self.min_history, T):
-            hist_F = F_matrix[:t, :]
+            mu_hat, sigma_hat = estimate_moments(rebuilt[t])
 
-            # 1. Rolling window expected factor returns (raw sample mean)
-            mu_slice = hist_F[-self.mu_window:, :] if t >= self.mu_window else hist_F
-            mu_hat = np.mean(mu_slice, axis=0)
-
-            # 2. Rolling window factor covariance (Ledoit-Wolf shrinkage)
-            cov_slice = hist_F[-self.cov_window:, :] if t >= self.cov_window else hist_F
-            lw = LedoitWolf(assume_centered=False)
-            sigma_hat = lw.fit(cov_slice).covariance_
-
-            # 3. Solve exact Equation (18)
+            # Solve Equation (18)
             a_opt = self._solve_equation_18(mu_hat, sigma_hat, a_prev)
 
-            # 4. Realized performance & net return accounting (Eq. 20)
+            # Realised performance & net return accounting (Eq. 20)
             realized_f_t = F_matrix[t, :]
             gross_return = float(np.dot(a_opt, realized_f_t))
             permnos, W, stock_returns = holdings[t]

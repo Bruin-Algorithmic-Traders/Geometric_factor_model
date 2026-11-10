@@ -80,8 +80,7 @@ KAPPA_PENALTY = 0.0003    # turnover penalty in the eq. 18 objective (tuned)
 TC_BPS = 10               # realised one-way trading cost in bp per $ traded (fixed, not tuned)
 GROSS_FACTOR_LEVERAGE = 1.0   # L_a
 MAX_FACTOR_WEIGHT = 0.20      # a_max
-MU_WINDOW_MONTHS = 12
-COV_WINDOW_MONTHS = 36
+COV_HALF_LIFE_MONTHS = 12    # EWMA half-life for Σ̂ (μ̂ is the plain mean of the HISTORY_MONTHS rebuilt months)
 MIN_HISTORY_MONTHS = 36
 HISTORY_MONTHS = 60          # months of rebuilt history kept per month (μ̂ window and EWMA cut-off)
 
