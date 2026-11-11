@@ -8,14 +8,14 @@ def stage_data():
     clean_data()
 
 
-def stage_tune_factors():
-    from src.tuning.tune_factors import evaluate_is_grid
-    print(evaluate_is_grid())
-
-
-def stage_tune_optimiser():
-    from src.tuning.tune_optimiser import main
+def stage_tune():
+    from src.tuning.tune import main
     main()
+
+
+def stage_select():
+    from src.tuning.tune import report
+    report()
 
 
 def stage_panel():
@@ -30,9 +30,9 @@ def stage_backtest():
 
 STAGES = {
     "data": stage_data,
-    "tune-factors": stage_tune_factors,
-    "tune-optimiser": stage_tune_optimiser,
     "panel": stage_panel,
+    "tune": stage_tune,
+    "select": stage_select,
     "backtest": stage_backtest,
 }
 

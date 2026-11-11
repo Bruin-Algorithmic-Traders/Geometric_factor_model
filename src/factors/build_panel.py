@@ -24,12 +24,12 @@ def rebuild_history(months: list, returns: list, centroids: np.ndarray, tau: flo
     return rebuilt
 
 
-def build_panel(n_clusters: int = N_CLUSTERS, tau: float = TAU, end_date: int = IS_END_DATE):
+def build_panel(n_clusters: int = N_CLUSTERS, tau: float = TAU, end_date: int = IS_END_DATE, clean_path=CHARS_CLEAN_PARQUET):
     """One continuous run from the first month up to end_date. Returns monthly Spec B factor returns
     (DATE, f_1..f_K), per-month diagnostics, each month's centroids (months x K x features), and each month's
     holdings (permnos, factor weights W of shape firms x K, stock returns) for stock-level costs, and the rebuilt
     history (months x HISTORY_MONTHS x K) for estimating μ̂ and Σ̂."""
-    df = pl.read_parquet(CHARS_CLEAN_PARQUET).filter(pl.col("DATE") <= end_date)
+    df = pl.read_parquet(clean_path).filter(pl.col("DATE") <= end_date)
     features = feature_cols(df.columns)
     groups = [g for _, g in df.group_by("DATE", maintain_order=True) if g.height >= n_clusters]
     months = [g.select(features).to_numpy() for g in groups]

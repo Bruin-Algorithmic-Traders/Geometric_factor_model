@@ -5,9 +5,8 @@ from sklearn.covariance import LedoitWolf
 from typing import Dict
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    COV_HALF_LIFE_MONTHS, FACTOR_RETURNS_OOS_PARQUET, GAMMA_F, GROSS_FACTOR_LEVERAGE, KAPPA_PENALTY,
-    MAX_FACTOR_WEIGHT, MIN_HISTORY_MONTHS, PROCESSED_DIR,
-    STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TC_BPS,
+    COV_HALF_LIFE_MONTHS, FACTOR_RETURNS_OOS_PARQUET, KAPPA_PENALTY, MAX_FACTOR_WEIGHT, MAX_STOCK_GROSS,
+    MIN_HISTORY_MONTHS, PROCESSED_DIR, STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TARGET_VOL, TC_BPS,
 )
 
 def stock_turnover(prev_permnos: np.ndarray, prev_w: np.ndarray, permnos: np.ndarray, w: np.ndarray) -> float:
@@ -34,39 +33,29 @@ def estimate_moments(history: np.ndarray, half_life: float = COV_HALF_LIFE_MONTH
 class SpecBBacktester:
     def __init__(
         self,
-        gamma_f: float = GAMMA_F,                              # Factor risk aversion
-        kappa_penalty: float = KAPPA_PENALTY,                  # Turnover penalty in the objective
-        tc_bps: float = TC_BPS,                                # Realised cost, bp per $ traded
-        gross_factor_leverage: float = GROSS_FACTOR_LEVERAGE,  # Max gross exposure cap (L_a)
-        max_factor_weight: float = MAX_FACTOR_WEIGHT,          # Single-factor concentration cap (a_max)
-        min_history_months: int = MIN_HISTORY_MONTHS           # Initial burn-in history
+        kappa_penalty: float = KAPPA_PENALTY,          # Turnover penalty in the objective
+        tc_bps: float = TC_BPS,                        # Realised cost, bp per $ traded
+        target_vol: float = TARGET_VOL,                # Ex-ante annual vol budget
+        max_stock_gross: float = MAX_STOCK_GROSS,      # Cap on Σ|stock weights|
+        max_factor_weight: float = MAX_FACTOR_WEIGHT,  # Single-factor cap |a_k|
+        min_history_months: int = MIN_HISTORY_MONTHS   # Initial burn-in history
     ):
-        self.gamma_f = gamma_f
         self.kappa_penalty = kappa_penalty
         self.tc = tc_bps / 1e4
-        self.L_a = gross_factor_leverage
+        self.max_monthly_var = target_vol ** 2 / 12
+        self.max_stock_gross = max_stock_gross
         self.a_max = max_factor_weight
         self.min_history = min_history_months
 
-    def _solve_equation_18(
-        self,
-        mu_f: np.ndarray,
-        sigma_f: np.ndarray,
-        a_prev: np.ndarray
-    ) -> np.ndarray:
-        M = len(mu_f)
-        a = cp.Variable(M)
-
-        # Objective Function: Expected Return - Risk Penalty - L1 Turnover Penalty (Eq. 18)
-        expected_ret = a @ mu_f
-        factor_risk = (self.gamma_f / 2.0) * cp.quad_form(a, cp.psd_wrap(sigma_f))
-        turnover_penalty = self.kappa_penalty * cp.norm(a - a_prev, 1)
-
-        objective = cp.Maximize(expected_ret - factor_risk - turnover_penalty)
-
+    def _solve(self, mu_f: np.ndarray, sigma_f: np.ndarray, a_prev: np.ndarray, W: np.ndarray) -> np.ndarray:
+        """Eq. 18 with the risk term written as a budget: maximise expected return minus the turnover penalty,
+        subject to ex-ante vol ≤ target, stock gross ≤ cap and a per-factor cap (W: this month's firms x K weights)."""
+        a = cp.Variable(len(mu_f))
+        objective = cp.Maximize(a @ mu_f - self.kappa_penalty * cp.norm(a - a_prev, 1))
         constraints = [
-            cp.norm(a, 1) <= self.L_a,        # Gross leverage constraint
-            cp.norm(a, "inf") <= self.a_max   # Max single-factor exposure
+            cp.quad_form(a, cp.psd_wrap(sigma_f)) <= self.max_monthly_var,
+            cp.norm(W @ a, 1) <= self.max_stock_gross,
+            cp.norm(a, "inf") <= self.a_max,
         ]
 
         prob = cp.Problem(objective, constraints)
@@ -88,22 +77,24 @@ class SpecBBacktester:
         T, M = F_matrix.shape
         assert len(holdings) == T and len(rebuilt) == T, "holdings and rebuilt need one entry per factor-return row"
         gross_returns, costs, net_returns, turnovers, factor_turnovers, weights_history, oos_dates = [], [], [], [], [], [], []
+        stock_gross, max_stock_weight = [], []
         a_prev = np.zeros(M)
         prev_permnos, prev_w = np.array([], dtype=np.int64), np.array([])
 
         for t in range(self.min_history, T):
             mu_hat, sigma_hat = estimate_moments(rebuilt[t])
 
-            # Solve Equation (18)
-            a_opt = self._solve_equation_18(mu_hat, sigma_hat, a_prev)
+            permnos, W, stock_returns = holdings[t]
+            a_opt = self._solve(mu_hat, sigma_hat, a_prev, W)
 
             # Realised performance & net return accounting (Eq. 20)
             realized_f_t = F_matrix[t, :]
             gross_return = float(np.dot(a_opt, realized_f_t))
-            permnos, W, stock_returns = holdings[t]
             w = W @ a_opt
             turnover = stock_turnover(prev_permnos, prev_w, permnos, w)
             cost = turnover * self.tc
+            stock_gross.append(float(np.abs(w).sum()))
+            max_stock_weight.append(float(np.abs(w).max()))
             factor_turnovers.append(float(np.sum(np.abs(a_opt - a_prev))))
             prev_permnos, prev_w = permnos, w * (1 + stock_returns) / (1 + gross_return)
 
@@ -122,7 +113,9 @@ class SpecBBacktester:
             "cost": costs,
             "strategy_return": net_returns,
             "turnover": turnovers,
-            "factor_turnover": factor_turnovers
+            "factor_turnover": factor_turnovers,
+            "stock_gross": stock_gross,
+            "max_stock_weight": max_stock_weight
         })
 
         df_weights = pl.DataFrame(

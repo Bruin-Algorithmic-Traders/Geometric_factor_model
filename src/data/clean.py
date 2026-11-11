@@ -48,7 +48,7 @@ def rank_normalise(lf: pl.LazyFrame, cols: list[str]) -> pl.LazyFrame:
     return lf.with_columns(exprs)
 
 
-def clean_data():
+def clean_data(dropped_cols: list[str] = DROPPED_COLS, out_path=CHARS_CLEAN_PARQUET):
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     lf = pl.scan_parquet(CHARS_PARQUET)
     raw_chars = feature_cols(lf.collect_schema().names())
@@ -57,14 +57,14 @@ def clean_data():
     lf = join_returns(lf)
     lf = filter_size_zerotrade(lf)
     lf = filter_row_missing(lf, raw_chars)
-    lf = lf.drop(DROPPED_COLS)
+    lf = lf.drop(dropped_cols)
     lf = rank_normalise(lf, feature_cols(lf.collect_schema().names()))
 
     df = lf.collect()
     nulls = {c: n for c, n in df.null_count().row(0, named=True).items() if n}
     if nulls:
         raise ValueError(f"Null values remain: {nulls}")
-    df.write_parquet(CHARS_CLEAN_PARQUET)
+    df.write_parquet(out_path)
 
 
 if __name__ == "__main__":
