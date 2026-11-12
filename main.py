@@ -51,6 +51,16 @@ def stage_attribution():
     main()
 
 
+def stage_replay():
+    from src.evaluation.replay import main
+    main()
+
+
+def stage_compare():
+    from src.evaluation.compare import main
+    main()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -66,6 +76,8 @@ STAGES = {
     "oos": stage_oos,
     "metrics": stage_metrics,
     "attribution": stage_attribution,
+    "replay": stage_replay,
+    "compare": stage_compare,
 }
 
 
