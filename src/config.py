@@ -10,6 +10,7 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 
 RAW_CHARS_GLOB = RAW_DIR / "characteristics_by_month" / "*.csv"
 RAW_RETURNS_CSV = RAW_DIR / "monthly_1990_to_2018.csv"
+FF_DIR = RAW_DIR / "ff"
 
 CHARS_PARQUET = PROCESSED_DIR / "chars.parquet"
 CHARS_CLEAN_PARQUET = PROCESSED_DIR / "chars_clean.parquet"
@@ -23,6 +24,7 @@ HOLDINGS_PARQUET = PROCESSED_DIR / "holdings.parquet"
 PANEL_DIAGNOSTICS_PARQUET = PROCESSED_DIR / "panel_diagnostics.parquet"
 TUNING_GRID_CSV = RESULTS_DIR / "tuning_grid.csv"
 CONFIG_LOCKED_JSON = RESULTS_DIR / "config_locked.json"
+MARKET_EXCESS_CSV = RESULTS_DIR / "market_excess.csv"
 
 # -----------------------------------------------------------------------------
 # Sample split (YYYYMMDD ints, matching the DATE column)

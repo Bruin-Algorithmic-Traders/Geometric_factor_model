@@ -43,7 +43,8 @@
 - Leak test: with returns shuffled across stocks within each month, the locked strategy's gross Sharpe averages −0.17 over 8 shuffles (range −0.54 to 0.30) vs 1.70 on real data, so no return leaks into features, μ̂/Σ̂ or the accounting.
 - Random-direction placebo (8 sets of fixed random unit directions in place of the centroids): in-sample net Sharpe 1.38–1.80 (median ~1.66) vs 1.57, so the k-means directions are not better than random ones before costs; with near-linear memberships any 40 directions span a similar part of characteristic space. K-means wins at high costs (1.07 vs 0.52–0.96 at 50 bp) because its directions are stable and halve stock turnover.
 - Costs are reported at 5, 10, 20 and 50 bp per $ traded on the same trades (the optimiser's turnover penalty stays locked).
-- Market benchmarks use raw returns (the data has no risk-free rate), so their Sharpe ratios are overstated relative to the dollar-neutral strategy.
+- *Superseded by the next entry for reporting.* Market benchmarks use raw returns (the data has no risk-free rate), so their Sharpe ratios are overstated relative to the dollar-neutral strategy.
+- Market benchmarks are reported as excess returns (minus the one-month T-bill rate from the Ken French 5-factor file, `results/market_excess.csv`); the strategy and other dollar-neutral runs are not adjusted because their shorts fund their longs.
 
 ## Data cleaning
 All thresholds below were measured on in-sample data (1990–2005) only and are frozen in `src/config.py`. Evidence is in `notebooks/01`–`07`.
