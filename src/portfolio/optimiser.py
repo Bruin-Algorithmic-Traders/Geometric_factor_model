@@ -5,8 +5,7 @@ from sklearn.covariance import LedoitWolf
 from typing import Dict
 from src.evaluation.metrics import annualised_stats
 from src.config import (
-    COV_HALF_LIFE_MONTHS, FACTOR_RETURNS_OOS_PARQUET, KAPPA_PENALTY, MAX_FACTOR_WEIGHT, MAX_STOCK_GROSS,
-    MIN_HISTORY_MONTHS, PROCESSED_DIR, STRATEGY_RETURNS_PARQUET, STRATEGY_WEIGHTS_PARQUET, TARGET_VOL, TC_BPS,
+    COV_HALF_LIFE_MONTHS, KAPPA_PENALTY, MAX_FACTOR_WEIGHT, MAX_STOCK_GROSS, MIN_HISTORY_MONTHS, TARGET_VOL, TC_BPS,
 )
 
 def stock_turnover(prev_permnos: np.ndarray, prev_w: np.ndarray, permnos: np.ndarray, w: np.ndarray) -> float:
@@ -141,26 +140,3 @@ class SpecBBacktester:
             "weights_df": df_weights
         }
 
-
-def main():
-    if FACTOR_RETURNS_OOS_PARQUET.exists():
-        df_factor_returns = pl.read_parquet(FACTOR_RETURNS_OOS_PARQUET)
-
-        backtester = SpecBBacktester()
-
-        results = backtester.run_backtest(df_factor_returns)
-
-        print("\n==========================================")
-        print(" PURE SPECIFICATION B: OUT-OF-SAMPLE      ")
-        print("==========================================")
-        for metric, val in results["metrics"].items():
-            print(f"{metric:25s}: {val:8.4f}")
-        print("==========================================")
-
-        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        results["returns_df"].write_parquet(STRATEGY_RETURNS_PARQUET)
-        results["weights_df"].write_parquet(STRATEGY_WEIGHTS_PARQUET)
-
-
-if __name__ == "__main__":
-    main()

@@ -14,14 +14,13 @@ RAW_RETURNS_CSV = RAW_DIR / "monthly_1990_to_2018.csv"
 CHARS_PARQUET = PROCESSED_DIR / "chars.parquet"
 CHARS_CLEAN_PARQUET = PROCESSED_DIR / "chars_clean.parquet"
 CHARS_CLEAN_RETURNS_FREE_PARQUET = PROCESSED_DIR / "chars_clean_returns_free.parquet"
+CHARS_CLEAN_DELIST_30_PARQUET = PROCESSED_DIR / "chars_clean_delist_30.parquet"
+CHARS_CLEAN_DELIST_100_PARQUET = PROCESSED_DIR / "chars_clean_delist_100.parquet"
 FACTOR_RETURNS_PARQUET = PROCESSED_DIR / "factor_returns.parquet"
 CENTROIDS_NPZ = PROCESSED_DIR / "centroids.npz"
 REBUILT_HISTORY_NPY = PROCESSED_DIR / "rebuilt_history.npy"
 HOLDINGS_PARQUET = PROCESSED_DIR / "holdings.parquet"
 PANEL_DIAGNOSTICS_PARQUET = PROCESSED_DIR / "panel_diagnostics.parquet"
-FACTOR_RETURNS_OOS_PARQUET = PROCESSED_DIR / "factor_returns_oos.parquet"
-STRATEGY_RETURNS_PARQUET = PROCESSED_DIR / "spec_b_oos_returns.parquet"
-STRATEGY_WEIGHTS_PARQUET = PROCESSED_DIR / "spec_b_factor_weights.parquet"
 TUNING_GRID_CSV = RESULTS_DIR / "tuning_grid.csv"
 CONFIG_LOCKED_JSON = RESULTS_DIR / "config_locked.json"
 
@@ -99,3 +98,8 @@ K_GRID = [15, 20, 25, 30, 35, 40, 50]
 TAU_GRID = [0.01, 0.3, 1, 3, 10, 30, 100]   # 0.01 ≈ linear-in-cos baseline
 KAPPA_GRID = [0.0001, 0.0003, 0.0010, 0.0030]   # κ_penalty: 1, 3, 10, 30 bp
 TUNE_WORKERS = 4    # parallel (K, τ) cells; each holds ~1-1.5 GB
+
+# -----------------------------------------------------------------------------
+# Benchmarks
+# -----------------------------------------------------------------------------
+N_RANDOM_DIRECTIONS = 8   # placebo runs with random directions instead of k-means centroids

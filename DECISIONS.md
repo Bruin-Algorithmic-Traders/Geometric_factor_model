@@ -2,7 +2,7 @@
 
 ## Return timing
 - Characteristics dated t are paired with the return dated t (same month), not t+1: `mom1m` in the row dated t equals the return dated t−1 (rank corr 0.998), so the row already only uses data up to t−1 and the extra month of lag was unnecessary.
-- Known look-ahead kept and disclosed: a firm is in month t's universe only if it has a return in month t, so firms that vanish mid-month (0.57% of stock-months; no delisting returns in the data) are dropped; the evaluation will re-run with a −30% return on every exit to measure the bias.
+- Known look-ahead kept and disclosed: a firm is in month t's universe only if it has a return in month t, so firms that vanish mid-month (0.57% of stock-months; no delisting returns in the data) are dropped. Sensitivity: keeping each firm for the month after its last return (if it still has characteristics; size cutoff computed without these rows) at −30% or −100% lowers in-sample net Sharpe from 1.57 to 1.49 or 1.45; the strategy holds slightly more of these firms long (0.47% of capital) than short (0.36%), so a negative exit return hurts rather than helps.
 
 ## Memberships (τ)
 - One formula everywhere, paper eq. 6: Π = softmax(τ·cos), via `SphericalKMeans.transform(X, tau)`; tuning, the factor panel and `transform()` previously used three different formulas.
@@ -37,6 +37,14 @@
 - Σ̂ calibration at the candidate K is fine (realised ÷ predicted risk 1.04–1.06 at K = 40/50, τ = 1) and the largest combined single-stock weight is ≤ 0.7% of capital in every month (`notebooks/13`).
 - Disclosure: some feature choices used in-sample return signal (IC tie-breaks, keeping `convind`/`securedind` and the scores). A returns-free variant (ties broken by lower missingness, then the more primitive variable: keeps `pchsale_pchinvt` and `mvel1`, drops `pchsaleinv` and `ill`) gives in-sample net Sharpe 1.61 vs 1.57 with 0.99 correlated monthly returns, so the return-informed choices did not inflate the in-sample result; it will also be run OOS alongside the main run.
 
+## Benchmarks
+- Static factor mixes are signed by the same 60-month μ̂ (sign(μ̂)/σ̂ and μ̂/σ̂²) and scaled to the same vol budget, gross cap and costs, because an unsigned equal-weight mix of all factors nearly cancels out.
+- The PCA benchmark replaces the centroids with ± the top K/2 principal axes of the same pooled firm vectors, so it has K directions and everything else (τ, Spec B, optimiser, costs) is unchanged except the per-factor cap, which is halved to 0.3 because each ± pair is one bet (factor returns −0.99 correlated) and at 0.6 every month put a net 1.2 on some axis.
+- Leak test: with returns shuffled across stocks within each month, the locked strategy's gross Sharpe averages −0.17 over 8 shuffles (range −0.54 to 0.30) vs 1.70 on real data, so no return leaks into features, μ̂/Σ̂ or the accounting.
+- Random-direction placebo (8 sets of fixed random unit directions in place of the centroids): in-sample net Sharpe 1.38–1.80 (median ~1.66) vs 1.57, so the k-means directions are not better than random ones before costs; with near-linear memberships any 40 directions span a similar part of characteristic space. K-means wins at high costs (1.07 vs 0.52–0.96 at 50 bp) because its directions are stable and halve stock turnover.
+- Costs are reported at 5, 10, 20 and 50 bp per $ traded on the same trades (the optimiser's turnover penalty stays locked).
+- Market benchmarks use raw returns (the data has no risk-free rate), so their Sharpe ratios are overstated relative to the dollar-neutral strategy.
+
 ## Data cleaning
 All thresholds below were measured on in-sample data (1990–2005) only and are frozen in `src/config.py`. Evidence is in `notebooks/01`–`07`.
 
@@ -48,3 +56,13 @@ All thresholds below were measured on in-sample data (1990–2005) only and are 
 - **Redundancy:** drop the fewest features so that no pair has |average monthly rank correlation| > 0.85, keeping the one with higher in-sample |IC t-stat| when there is a choice; this drops `betasq`, `pchsale_pchinvt`, `dolvol`, `pchquick`, `mvel1`, `turn`, `retvol`, `quick` (`mvel1` and `dolvol` lose to `ill`; dropping `retvol` alone clears both `maxret` and `baspread`; closest pair below the line is `std_turn`/`zerotrade` at 0.84).
 - **Imputation:** rank non-missing values to [−1, 1] each month, then set missing to 0, instead of median-fill then rank, which left a gap around the median.
 - **sic2:** metadata only (not a feature), forward-filled within `permno`, unknown = −1; no backward fill because it used future data and recovered only 0.07% of rows.
+
+## Pre-OOS expectations
+Written before the single OOS run (2006–2018); with ~150 OOS months a Sharpe estimate has a standard error of ~0.3, so differences under ~0.3 count as equal.
+- The locked strategy's net Sharpe will be well below the in-sample 1.57; roughly half (about 0.6–1.0) is expected, since published anomaly returns fall by about half after publication and our settings were tuned on 1990–2005.
+- Success means: net Sharpe positive at 10 bp, still positive at 20 bp, and above the inverse-vol mix (the optimiser adds value out of sample).
+- k-means ≥ the median random-direction run at 20 bp and 50 bp (its stable directions trade less); about equal at 5–10 bp.
+- τ = 0.01 stays about equal to the strategy, and PCA directions stay below it after costs.
+- Returns-free features stay about equal to the main features.
+- Exits at −30% / −100% lower net Sharpe by around 0.1, as in-sample.
+- Correlation with the market stays low (|corr| < 0.3).

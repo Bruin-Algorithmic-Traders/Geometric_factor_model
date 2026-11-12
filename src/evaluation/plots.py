@@ -35,3 +35,23 @@ def tuning_heatmaps(grid: pl.DataFrame, chosen: dict, out_dir: Path):
     plt.tight_layout()
     fig.savefig(out_dir / "tuning_heatmaps.png")
     plt.close(fig)
+
+
+def benchmark_curves(returns: pl.DataFrame, out_path: Path, target_vol: float = 0.10):
+    """Cumulative net return of each series, each rescaled after the fact to the same realised vol for display."""
+    dates = returns["DATE"].cast(pl.String).str.to_date("%Y%m%d")
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    for name in returns.columns[1:]:
+        r = returns[name].to_numpy()
+        r = r * target_vol / (r.std(ddof=1) * np.sqrt(12))
+        if name.startswith("random_directions"):
+            ax.plot(dates, np.cumsum(r), lw=0.8, color="#bbbbbb",
+                    label="random directions" if name.endswith("_0") else None)
+        else:
+            ax.plot(dates, np.cumsum(r), lw=2.2 if name == "strategy" else 1.1,
+                    color="black" if name == "strategy" else None, label=name)
+    ax.set_ylabel(f"cumulative return at {target_vol:.0%} vol")
+    ax.legend(frameon=False, ncol=2, fontsize=8)
+    plt.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)

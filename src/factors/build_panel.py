@@ -24,7 +24,8 @@ def rebuild_history(months: list, returns: list, centroids: np.ndarray, tau: flo
     return rebuilt
 
 
-def build_panel(n_clusters: int = N_CLUSTERS, tau: float = TAU, end_date: int = IS_END_DATE, clean_path=CHARS_CLEAN_PARQUET):
+def build_panel(n_clusters: int = N_CLUSTERS, tau: float = TAU, end_date: int = IS_END_DATE, clean_path=CHARS_CLEAN_PARQUET,
+                fit=fit_monthly):
     """One continuous run from the first month up to end_date. Returns monthly Spec B factor returns
     (DATE, f_1..f_K), per-month diagnostics, each month's centroids (months x K x features), and each month's
     holdings (permnos, factor weights W of shape firms x K, stock returns) for stock-level costs, and the rebuilt
@@ -36,7 +37,7 @@ def build_panel(n_clusters: int = N_CLUSTERS, tau: float = TAU, end_date: int = 
 
     builder = FactorBuilder()
     rows, diagnostics, centroids, holdings = [], [], [], []
-    for g, X, (model, matched) in zip(groups, months, fit_monthly(months, n_clusters)):
+    for g, X, (model, matched) in zip(groups, months, fit(months, n_clusters)):
         Pi = model.transform(X, tau)
         W = builder.compute_weights(Pi)
         returns = g[TARGET_COL].to_numpy()
