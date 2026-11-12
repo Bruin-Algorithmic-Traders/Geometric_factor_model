@@ -61,6 +61,11 @@ def stage_compare():
     main()
 
 
+def stage_d1():
+    from src.evaluation.diagnostics import d1_mu_hat_ic
+    d1_mu_hat_ic()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -78,6 +83,7 @@ STAGES = {
     "attribution": stage_attribution,
     "replay": stage_replay,
     "compare": stage_compare,
+    "d1": stage_d1,
 }
 
 

@@ -48,5 +48,6 @@ results/*
 !results/*.json
 !results/*.csv
 !results/oos_commit.txt
+!results/exploratory/
 
 /data/
