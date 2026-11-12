@@ -159,3 +159,45 @@ def drawdown_chart(out_path: Path = FIGURES_DIR / "f3_drawdown.png"):
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
+
+
+def tuning_heatmap(out_path: Path = FIGURES_DIR / "f4_tuning_heatmap.png"):
+    """In-sample net Sharpe over K × τ at the locked κ, with the locked cell (solid) and the selection rule's
+    pick (dashed) outlined."""
+    import json
+    from src.config import CONFIG_LOCKED_JSON, TUNING_GRID_CSV
+    from src.tuning.tune import select
+    locked = json.loads(CONFIG_LOCKED_JSON.read_text())["in_sample"]
+    grid = pl.read_csv(TUNING_GRID_CSV).filter(pl.col("kappa_penalty") == locked["kappa_penalty"])
+    Ks, taus = sorted(grid["K"].unique()), sorted(grid["tau"].unique())
+    mat = np.array([[grid.filter((pl.col("K") == k) & (pl.col("tau") == t))["net_sharpe"].item() for t in taus] for k in Ks])
+
+    fig, ax = plt.subplots(figsize=(7.5, 5), facecolor=SURFACE)
+    im = ax.imshow(mat, cmap="Blues", aspect="auto", vmin=0, vmax=mat.max())
+    for i in range(len(Ks)):
+        for j in range(len(taus)):
+            ax.text(j, i, f"{mat[i, j]:.2f}", ha="center", va="center", fontsize=9,
+                    color=SURFACE if mat[i, j] > 0.6 * mat.max() else INK)
+    def outline(K, tau, style, label):
+        i, j = Ks.index(K), taus.index(tau)
+        ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=INK, lw=2.2, ls=style, label=label))
+    outline(locked["K"], locked["tau"], "-", f"locked: K = {locked['K']}, τ = {locked['tau']:g}")
+    pick = select(pl.read_csv(TUNING_GRID_CSV))
+    outline(pick["K"], pick["tau"], "--", f"selection rule's pick: K = {pick['K']}, τ = {pick['tau']:g}")
+    ax.set_xticks(range(len(taus)), [f"{t:g}" for t in taus])
+    ax.set_yticks(range(len(Ks)), [str(k) for k in Ks])
+    ax.set_xlabel("τ (low = soft, near-linear memberships; high = hard clusters)", color=INK_2, fontsize=9)
+    ax.set_ylabel("K (number of clusters)", color=INK_2, fontsize=9)
+    ax.tick_params(colors=INK_2, labelsize=9, length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_title("More clusters and softer memberships scored higher in-sample", loc="left", color=INK, fontsize=12, pad=12)
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK_2, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
+    cbar.set_label(f"in-sample net Sharpe (κ = {locked['kappa_penalty'] * 1e4:g} bp)", color=INK_2, fontsize=9)
+    cbar.ax.tick_params(colors=INK_2, labelsize=8)
+    cbar.outline.set_visible(False)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
