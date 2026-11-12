@@ -40,6 +40,12 @@ def stage_leaktest():
     leak_test()
 
 
+def stage_metrics():
+    from src.evaluation import ff_data, metrics
+    ff_data.main()
+    metrics.main()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -53,6 +59,7 @@ STAGES = {
     "benchmarks": stage_benchmarks,
     "leaktest": stage_leaktest,
     "oos": stage_oos,
+    "metrics": stage_metrics,
 }
 
 

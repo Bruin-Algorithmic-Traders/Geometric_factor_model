@@ -85,3 +85,11 @@ Written before the single OOS run (2006–2018); with ~150 OOS months a Sharpe e
 | \|corr with market\| < 0.3 | −0.06 (equal), −0.04 (value) | ✓ |
 
 - Delisting flip: out of sample the exiting firms sit mostly on the short side (0.51% of capital short vs 0.25% long in the −100% run; about even at −30%), so a −100% exit return raises net Sharpe and is not a conservative stress there; −30% is the case to quote.
+
+## Metrics
+- Drawdowns (and the equity curve) use the cumulative sum of monthly returns, not compounding, because the book is long/short at a fixed vol target.
+- Beta and correlation use Fama-French Mkt-RF everywhere; our own equal- and value-weighted market series stay only as benchmark rows.
+- Gross Sharpe, turnover and cost drag come from the frozen summary files because monthly gross returns were not saved, so gross Sharpe has no confidence interval; replaying the `pre-oos` code to save more columns would be a reproducibility check, decided only if needed.
+- Deflated Sharpe (in-sample strategy) uses the spread of net Sharpe across the 196 risk-budget configurations, converted to monthly; N = 2,168 is the conservative bound (treats every trial as independent) and N = 196 is shown alongside; the effective number lies in between because neighbouring grid cells are nearly the same strategy. It is 0.98 (N = 2,168) and 0.99 (N = 196), so the in-sample Sharpe was not mainly luck from the search and the out-of-sample fall points to the change of period; it covers only the grid, not the feature and window choices made on in-sample returns, so it is somewhat optimistic.
+- Both an i.i.d. t and a Newey-West t (6 lags) are reported; out of sample they are 1.24 and 1.43, the gap coming from small negative autocorrelations about one standard error from zero, so the Sharpe confidence interval (which matches the i.i.d. t) is the headline.
+- The average of the 8 random-direction runs is rescaled to 10% realised vol so its return and drawdown compare with single runs; rescaling leaves its Sharpe unchanged and that Sharpe is still lifted by diversification, so comparisons with random directions use the 8 per-seed results first.

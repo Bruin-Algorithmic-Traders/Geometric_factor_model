@@ -1,0 +1,3 @@
+bound,n_trials,trial_sharpe_sd_monthly,sr0_annual,deflated_sharpe
+conservative (all trials independent),2168,0.07395910600442833,0.8887757374358137,0.9774932619065051
+final risk-budget round only,196,0.07395910600442833,0.7068387115500666,0.994456093405372
