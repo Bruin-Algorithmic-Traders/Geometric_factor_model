@@ -40,14 +40,7 @@ cython_debug/
 # macOS files
 .DS_Store
 
-# Logs and generated outputs
+# Logs
 *.log
-results/*
-!results/.gitkeep
-!results/*.png
-!results/*.json
-!results/*.csv
-!results/oos_commit.txt
-!results/exploratory/
 
 /data/

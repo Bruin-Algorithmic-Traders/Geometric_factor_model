@@ -71,6 +71,11 @@ def stage_d4():
     d4_subperiods()
 
 
+def stage_d8():
+    from src.evaluation.diagnostics import d8
+    d8()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -90,6 +95,7 @@ STAGES = {
     "compare": stage_compare,
     "d1": stage_d1,
     "d4": stage_d4,
+    "d8": stage_d8,
 }
 
 
