@@ -86,6 +86,11 @@ def stage_d7():
     d7_rolling_sharpe()
 
 
+def stage_d6_d5():
+    from src.evaluation.diagnostics import d6_d5
+    d6_d5()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -108,6 +113,7 @@ STAGES = {
     "d8": stage_d8,
     "d3": stage_d3,
     "d7": stage_d7,
+    "d6_d5": stage_d6_d5,
 }
 
 

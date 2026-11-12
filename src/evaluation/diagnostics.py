@@ -262,3 +262,114 @@ def d7_rolling_sharpe():
         **{r: pl.col(r).rolling_mean(ROLLING_MONTHS) / pl.col(r).rolling_std(ROLLING_MONTHS) * np.sqrt(12) for r in runs},
     ).drop_nulls(runs[0])
     rolling.write_csv(EXPLORATORY_DIR / "d7_rolling_sharpe.csv")
+
+
+def strategy_replay_weights():
+    """Re-run the locked strategy to the end of the data and save its monthly factor weights a_t, characteristic
+    exposure b_t = Σ_k a_k c_k, factor returns and centroids' features, after checking every month's net return
+    against the frozen files (≤ 1e-10)."""
+    from src.config import CHARS_CLEAN_PARQUET, feature_cols
+    from src.factors.build_panel import build_panel
+    from src.portfolio.optimiser import SpecBBacktester
+    from src.evaluation.replay import TOLERANCE
+    fr, _, centroids, holdings, rebuilt = build_panel(end_date=OOS_END_DATE)
+    res = SpecBBacktester().run_backtest(fr, holdings, rebuilt)
+    returns, weights = res["returns_df"], res["weights_df"]
+    frozen = pl.concat([pl.read_csv(RESULTS_DIR / f"benchmark_returns_{s}.csv", columns=["DATE", "strategy"]) for s in ("is", "oos")])
+    check = frozen.join(returns, on="DATE", how="left")
+    max_diff = (check["strategy"] - check["strategy_return"]).abs().max()
+    if check["strategy_return"].null_count() or max_diff > TOLERANCE:
+        raise RuntimeError(f"strategy replay does not reproduce the frozen returns (max diff {max_diff})")
+    print(f"strategy replay check passed, max diff {max_diff}")
+    features = feature_cols(pl.read_parquet_schema(CHARS_CLEAN_PARQUET).keys())
+    A = weights.drop("DATE").to_numpy()
+    traded = centroids[fr.height - len(A):]
+    B = np.einsum("tk,tkj->tj", A, traded)
+    dates = weights["DATE"]
+    weights.select("DATE", pl.exclude("DATE")).write_csv(EXPLORATORY_DIR / "strategy_factor_weights.csv")
+    pl.DataFrame(B, schema=features).insert_column(0, dates).write_csv(EXPLORATORY_DIR / "d6_exposure_monthly.csv")
+    fr.filter(pl.col("DATE").is_in(dates.implode())).write_csv(EXPLORATORY_DIR / "strategy_factor_returns.csv")
+    np.savez_compressed(EXPLORATORY_DIR / "strategy_centroids.npz", dates=dates.to_numpy(), centroids=traded, features=features)
+
+
+def d6_exposure():
+    """Average characteristic exposure b in-sample vs out of sample, and how similar the two profiles are."""
+    b = pl.read_csv(EXPLORATORY_DIR / "d6_exposure_monthly.csv")
+    features = b.columns[1:]
+    mean = lambda cond: b.filter(cond).select(features).mean().to_numpy()[0]
+    b_is, b_oos = mean(pl.col("DATE") <= IS_END_DATE), mean(pl.col("DATE") >= OOS_START_DATE)
+    table = (pl.DataFrame({"feature": features, "b_is": b_is, "b_oos": b_oos})
+             .with_columns(rank_is=pl.col("b_is").abs().rank(descending=True).cast(pl.Int64),
+                           rank_oos=pl.col("b_oos").abs().rank(descending=True).cast(pl.Int64))
+             .sort("rank_is"))
+    table.write_csv(EXPLORATORY_DIR / "d6_exposure.csv")
+    corr = float(np.corrcoef(b_is, b_oos)[0, 1])
+    pl.DataFrame({"corr_b_is_b_oos": [corr]}).write_csv(EXPLORATORY_DIR / "d6_profile_corr.csv")
+    return table, corr
+
+
+def drawdowns(dates: np.ndarray, r: np.ndarray) -> pl.DataFrame:
+    """Every drawdown of the cumulative sum: peak month, trough month, recovery month (None if not recovered), depth."""
+    cum = np.concatenate([[0.0], np.cumsum(r)])
+    peak = np.maximum.accumulate(cum)
+    dates = np.concatenate([[None], dates])
+    rows, i = [], 1
+    while i < len(cum):
+        if cum[i] < peak[i]:
+            j = i
+            while j < len(cum) and cum[j] < peak[j]:
+                j += 1
+            k = i + int(np.argmin(cum[i:j]))
+            rows.append({"peak": dates[i - 1], "trough": dates[k], "recovered": dates[j] if j < len(cum) else None,
+                         "depth": cum[k] - peak[k]})
+            i = j
+        else:
+            i += 1
+    return pl.DataFrame(rows)
+
+
+def d5_drawdown_2016(top: int = 5, top_features: int = 5):
+    """Attribute the drawdown whose trough is in 2016: each factor's gross contribution a_k f_k summed over the
+    months after the peak up to the trough, the characteristics its centroid weights most, and the part explained
+    by the full-OOS Fama-French betas times the factor returns in those months."""
+    from src.evaluation.ff_data import load_ff
+    from src.evaluation.attribution import MODELS
+    r = pl.read_csv(RESULTS_DIR / "benchmark_returns_oos.csv").select("DATE", "strategy")
+    dd = drawdowns(r["DATE"].to_numpy(), r["strategy"].to_numpy())
+    window = dd.filter(pl.col("trough") // 10000 == 2016).row(0, named=True)
+    in_window = pl.col("DATE").is_between(window["peak"] + 1, window["trough"])
+
+    a = pl.read_csv(EXPLORATORY_DIR / "strategy_factor_weights.csv").filter(in_window)
+    f = pl.read_csv(EXPLORATORY_DIR / "strategy_factor_returns.csv").filter(in_window)
+    contrib = (a.drop("DATE").to_numpy() * f.drop("DATE").to_numpy()).sum(axis=0)
+    z = np.load(EXPLORATORY_DIR / "strategy_centroids.npz")
+    C = z["centroids"][np.isin(z["dates"], a["DATE"].to_numpy())].mean(axis=0)
+    features = z["features"]
+    order = np.argsort(contrib)
+    rows = []
+    for k in [*order[:top], *order[::-1][:top]]:
+        lead = np.argsort(-np.abs(C[k]))[:top_features]
+        rows.append({"factor": f"f_{k + 1}", "contribution": contrib[k], "avg_weight": a[f"f_{k + 1}"].mean(),
+                     "factor_return": f[f"f_{k + 1}"].sum(),
+                     "top_characteristics": ", ".join(f"{features[j]} {C[k, j]:+.2f}" for j in lead)})
+    factors = pl.DataFrame(rows)
+
+    attribution = pl.read_csv(RESULTS_DIR / "attribution_oos.csv").filter(
+        (pl.col("run") == "strategy") & (pl.col("model") == "ff5_umd_strev"))
+    betas = dict(zip(attribution["term"], attribution["estimate"]))
+    ff = load_ff().filter(pl.col("YYYYMM").is_between(window["peak"] // 100 + 1, window["trough"] // 100))
+    ff_rows = [{"factor": name, "beta_oos": betas[name], "factor_return": ff[name].sum(),
+                "explained": betas[name] * ff[name].sum()} for name in MODELS["ff5_umd_strev"]]
+    strat = r.filter(in_window)["strategy"].sum()
+    summary = pl.DataFrame([{**window, "months": f.height, "strategy_net": strat, "gross_from_factors": contrib.sum(),
+                             "ff_explained": sum(x["explained"] for x in ff_rows)}])
+    summary.write_csv(EXPLORATORY_DIR / "d5_window.csv")
+    factors.write_csv(EXPLORATORY_DIR / "d5_factor_contributions.csv")
+    pl.DataFrame(ff_rows).write_csv(EXPLORATORY_DIR / "d5_ff_explained.csv")
+    return summary, factors, pl.DataFrame(ff_rows)
+
+
+def d6_d5():
+    strategy_replay_weights()
+    d6_exposure()
+    d5_drawdown_2016()
