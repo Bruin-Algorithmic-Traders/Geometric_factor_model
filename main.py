@@ -46,6 +46,11 @@ def stage_metrics():
     metrics.main()
 
 
+def stage_attribution():
+    from src.evaluation.attribution import main
+    main()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -60,6 +65,7 @@ STAGES = {
     "leaktest": stage_leaktest,
     "oos": stage_oos,
     "metrics": stage_metrics,
+    "attribution": stage_attribution,
 }
 
 
