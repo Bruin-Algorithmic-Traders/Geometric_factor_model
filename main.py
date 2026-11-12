@@ -91,6 +91,16 @@ def stage_d6_d5():
     d6_d5()
 
 
+def stage_figures():
+    from src.evaluation import plots
+    plots.equity_curve(); plots.drawdown_chart(); plots.tuning_heatmap(); plots.cost_curve(); plots.ic_by_year()
+
+
+def stage_readme():
+    from src.evaluation.readme_tables import main
+    main()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -114,6 +124,8 @@ STAGES = {
     "d3": stage_d3,
     "d7": stage_d7,
     "d6_d5": stage_d6_d5,
+    "figures": stage_figures,
+    "readme": stage_readme,
 }
 
 
