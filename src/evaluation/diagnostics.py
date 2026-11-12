@@ -229,3 +229,16 @@ def d8_score_autocorr_summary():
      .agg(pl.len().alias("months"), pl.col("score_autocorr").mean().alias("mean"),
           pl.col("score_autocorr").min().alias("min"), pl.col("score_autocorr").max().alias("max"))
      .write_csv(EXPLORATORY_DIR / "d8_score_autocorr.csv"))
+
+
+def d3_by_year():
+    """Per run and calendar year (10 bp): gross and net return, cost, stock turnover and gross/net Sharpe."""
+    monthly = pl.read_csv(REPLAY_MONTHLY_CSV).with_columns(year=pl.col("DATE") // 10000)
+    sharpe = lambda c: pl.col(c).mean() / pl.col(c).std() * np.sqrt(12)
+    (monthly.group_by("run", "year", maintain_order=True)
+     .agg(pl.len().alias("months"), (12 * pl.col("gross_return").mean()).alias("gross_ann"),
+          (12 * pl.col("net_return").mean()).alias("net_ann"), (12 * pl.col("cost").mean()).alias("cost_ann"),
+          pl.col("turnover").mean().alias("stock_turnover"), sharpe("gross_return").alias("gross_sharpe"),
+          sharpe("net_return").alias("net_sharpe"))
+     .sort("run", "year")
+     .write_csv(EXPLORATORY_DIR / "d3_by_year.csv"))

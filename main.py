@@ -76,6 +76,11 @@ def stage_d8():
     d8()
 
 
+def stage_d3():
+    from src.evaluation.diagnostics import d3_by_year
+    d3_by_year()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -96,6 +101,7 @@ STAGES = {
     "d1": stage_d1,
     "d4": stage_d4,
     "d8": stage_d8,
+    "d3": stage_d3,
 }
 
 
