@@ -242,3 +242,23 @@ def d3_by_year():
           sharpe("net_return").alias("net_sharpe"))
      .sort("run", "year")
      .write_csv(EXPLORATORY_DIR / "d3_by_year.csv"))
+
+
+ROLLING_MONTHS = 36
+
+
+def d7_rolling_sharpe():
+    """Annualised net Sharpe (10 bp) over trailing 36-month windows, labelled by the window's last month."""
+    returns = pl.concat([pl.read_csv(RESULTS_DIR / f"benchmark_returns_{s}.csv") for s in ("is", "oos")])
+    returns = (returns.drop("market_equal", "market_value")
+               .join(pl.read_csv(MARKET_EXCESS_CSV).drop("RF"), on="DATE").sort("DATE"))
+    runs = [c for c in returns.columns if c != "DATE"]
+    first = returns["DATE"].shift(ROLLING_MONTHS - 1)
+    rolling = returns.select(
+        "DATE",
+        window_start=first,
+        window=pl.when(pl.col("DATE") <= IS_END_DATE).then(pl.lit("is"))
+        .when(first >= OOS_START_DATE).then(pl.lit("oos")).otherwise(pl.lit("mixed")),
+        **{r: pl.col(r).rolling_mean(ROLLING_MONTHS) / pl.col(r).rolling_std(ROLLING_MONTHS) * np.sqrt(12) for r in runs},
+    ).drop_nulls(runs[0])
+    rolling.write_csv(EXPLORATORY_DIR / "d7_rolling_sharpe.csv")

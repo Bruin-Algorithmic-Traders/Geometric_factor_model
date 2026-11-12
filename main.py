@@ -81,6 +81,11 @@ def stage_d3():
     d3_by_year()
 
 
+def stage_d7():
+    from src.evaluation.diagnostics import d7_rolling_sharpe
+    d7_rolling_sharpe()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -102,6 +107,7 @@ STAGES = {
     "d4": stage_d4,
     "d8": stage_d8,
     "d3": stage_d3,
+    "d7": stage_d7,
 }
 
 
