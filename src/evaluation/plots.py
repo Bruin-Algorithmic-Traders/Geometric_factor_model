@@ -201,3 +201,36 @@ def tuning_heatmap(out_path: Path = FIGURES_DIR / "f4_tuning_heatmap.png"):
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
+
+
+def cost_curve(out_path: Path = FIGURES_DIR / "f5_sharpe_vs_cost.png"):
+    """Out-of-sample net Sharpe at 5/10/20/50 bp per $ traded: strategy, PCA, and the random-seed range and median."""
+    from src.config import RESULTS_DIR
+    costs = pl.read_csv(RESULTS_DIR / "benchmarks_costs_oos.csv")
+    cols = [c for c in costs.columns if c.startswith("net_sharpe_")]
+    bps = np.array([int(c.removeprefix("net_sharpe_").removesuffix("bp")) for c in cols])
+    row = lambda name: costs.filter(pl.col("benchmark") == name).select(cols).to_numpy()[0]
+    seeds = costs.filter(pl.col("benchmark").str.starts_with("random_directions_")).select(cols).to_numpy()
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.5), facecolor=SURFACE)
+    _style(ax)
+    ax.axhline(0, color=INK_2, lw=0.8)
+    ax.fill_between(bps, seeds.min(axis=0), seeds.max(axis=0), color="#d9d8d3", lw=0, label="random directions (8, min–max)")
+    ax.plot(bps, np.median(seeds, axis=0), color=INK_2, lw=1.5, ls=(0, (4, 3)), label="random directions, median")
+    ax.plot(bps, row("pca_directions"), color=SERIES[1], lw=2, marker="o", ms=6, label="PCA directions")
+    ax.plot(bps, row("strategy"), color=INK, lw=2.6, marker="o", ms=6, label="k-means strategy")
+    ends = [(row("strategy")[-1], f"k-means  {row('strategy')[-1]:.2f}"),
+            (np.median(seeds, axis=0)[-1], f"random median  {np.median(seeds, axis=0)[-1]:.2f}"),
+            (row("pca_directions")[-1], f"PCA  {row('pca_directions')[-1]:.2f}")]
+    for y, text in ends:
+        ax.annotate(text, (bps[-1], y), xytext=(8, 0), textcoords="offset points", va="center", fontsize=8.5, color=INK_2)
+    ax.set_xticks(bps, [f"{b} bp" for b in bps])
+    ax.set_xlim(bps[0] - 3, bps[-1])
+    ax.set_xlabel("trading cost per $ of stock traded", color=INK_2, fontsize=9)
+    ax.set_ylabel("out-of-sample net Sharpe (2006–2018)", color=INK_2, fontsize=9)
+    ax.set_title("Out of sample, costs hurt k-means least", loc="left", color=INK, fontsize=13, pad=12)
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK_2, loc="lower left")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
