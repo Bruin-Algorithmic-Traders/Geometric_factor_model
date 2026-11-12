@@ -234,3 +234,31 @@ def cost_curve(out_path: Path = FIGURES_DIR / "f5_sharpe_vs_cost.png"):
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
+
+
+def ic_by_year(out_path: Path = FIGURES_DIR / "f7_mu_hat_ic_by_year.png"):
+    """Mean monthly rank IC of μ̂ by year, coloured by sample, with each sample's mean as a reference line."""
+    from src.config import RESULTS_DIR
+    summary = pl.read_csv(RESULTS_DIR / "exploratory" / "d1_mu_hat_ic_summary.csv")
+    years = summary.filter(pl.col("group") == "year").with_columns(pl.col("label").cast(pl.Int64))
+    means = dict(summary.filter(pl.col("group") == "sample").select("label", "ic_mean").iter_rows())
+    is_year = years["label"] <= 2005
+
+    fig, ax = plt.subplots(figsize=(10, 4), facecolor=SURFACE)
+    _style(ax)
+    ax.axhline(0, color=INK_2, lw=0.8)
+    for mask, color, label, key, span in ((is_year, SERIES[0], "in sample", "is", (1992.6, 2005.5)),
+                                         (~is_year, SERIES[1], "out of sample", "oos", (2005.5, 2018.4))):
+        sel = years.filter(mask)
+        ax.bar(sel["label"], sel["ic_mean"], width=0.6, color=color, label=label)
+        ax.hlines(means[key], *span, color=color, lw=1.5, ls=(0, (4, 3)), label=f"{label} mean {means[key]:.3f}")
+    ax.axvline(2005.5, color=INK_2, lw=1)
+    ax.set_xticks(range(1993, 2019, 2))
+    ax.set_xlim(1992.4, 2018.6)
+    ax.set_ylabel("mean monthly rank IC of μ̂", color=INK_2, fontsize=9)
+    ax.set_title("The factor return forecast became unreliable after 2007", loc="left", color=INK, fontsize=13, pad=12)
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK_2, loc="lower left")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
