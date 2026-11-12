@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import polars as pl
 
@@ -113,6 +114,46 @@ def equity_curve(out_path: Path = FIGURES_DIR / "f2_equity_curve.png", target_vo
     ax.set_ylabel(f"cumulative return, all lines scaled to {target_vol:.0%} vol", color=INK_2, fontsize=9)
     ax.set_title("Strong before 2006, mostly flat after", loc="left", color=INK, fontsize=13, pad=12)
     ax.legend(frameon=False, fontsize=8.5, loc="upper left", labelcolor=INK_2)
+    ax.set_xlim(dates[0], dates[-1])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _scaled_returns(target_vol: float = 0.10) -> tuple[np.ndarray, dict]:
+    """Dates and each run's monthly net return (plus value-weighted market excess), scaled once to target_vol."""
+    from src.config import MARKET_EXCESS_CSV, RESULTS_DIR
+    returns = pl.concat([pl.read_csv(RESULTS_DIR / f"benchmark_returns_{s}.csv") for s in ("is", "oos")])
+    returns = returns.join(pl.read_csv(MARKET_EXCESS_CSV).select("DATE", "market_value_excess"), on="DATE").sort("DATE")
+    dates = returns["DATE"].cast(pl.String).str.to_date("%Y%m%d").to_numpy()
+    return dates, {c: returns[c].to_numpy() * target_vol / (returns[c].std() * np.sqrt(12)) for c in returns.columns[1:]}
+
+
+def _underwater(r: np.ndarray) -> np.ndarray:
+    cum = np.cumsum(r)
+    return cum - np.maximum.accumulate(np.maximum(cum, 0))
+
+
+def drawdown_chart(out_path: Path = FIGURES_DIR / "f3_drawdown.png"):
+    """Drawdown of the cumulative sum (all lines at 10% vol): strategy, random-seed band and market excess."""
+    from src.config import OOS_START_DATE
+    dates, r = _scaled_returns()
+    seeds = np.array([_underwater(v) for k, v in r.items() if k.startswith("random_directions_")])
+    fig, ax = plt.subplots(figsize=(10, 4), facecolor=SURFACE)
+    _style(ax)
+    ax.fill_between(dates, seeds.min(axis=0), seeds.max(axis=0), color="#d9d8d3", lw=0, label="random directions (8, min–max)")
+    ax.plot(dates, _underwater(r["market_value_excess"]), color=SERIES[3], lw=2, label="market excess (value-weighted)")
+    ax.plot(dates, _underwater(r["pca_directions"]), color=SERIES[1], lw=2, label="PCA directions")
+    ax.plot(dates, _underwater(r["strategy"]), color=INK, lw=2.6, label="k-means strategy")
+    boundary = np.datetime64(f"{str(OOS_START_DATE)[:4]}-01-01")
+    ax.axvline(boundary, color=INK_2, lw=1)
+    ax.text(boundary, 0.02, "  out of sample →", va="bottom", fontsize=9, color=INK_2)
+    ax.text(boundary, 0.02, "← in sample  ", va="bottom", ha="right", fontsize=9, color=INK_2)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
+    ax.set_ylabel("drawdown, all lines scaled to 10% vol", color=INK_2, fontsize=9)
+    ax.set_title("Out of sample, the strategy spent four years under water", loc="left", color=INK, fontsize=13, pad=18)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower left", labelcolor=INK_2, ncol=2)
     ax.set_xlim(dates[0], dates[-1])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
