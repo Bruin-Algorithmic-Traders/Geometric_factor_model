@@ -47,5 +47,6 @@ results/*
 !results/*.png
 !results/*.json
 !results/*.csv
+!results/oos_commit.txt
 
 /data/

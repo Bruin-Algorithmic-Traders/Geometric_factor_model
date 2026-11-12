@@ -66,3 +66,21 @@ Written before the single OOS run (2006–2018); with ~150 OOS months a Sharpe e
 - Returns-free features stay about equal to the main features.
 - Exits at −30% / −100% lower net Sharpe by around 0.1, as in-sample.
 - Correlation with the market stays low (|corr| < 0.3).
+
+## OOS results
+- The single OOS run (2006-01 to 2018-11, 155 months) is final: it ran once from tag `pre-oos` (commit in `results/oos_commit.txt`) and the locked strategy will not be re-run or changed; any later analysis of OOS data is exploratory. Numbers are from `results/benchmarks_oos.csv` and `results/benchmarks_costs_oos.csv`.
+
+| Pre-registered expectation | OOS result | |
+|---|---|---|
+| Net Sharpe about 0.6–1.0 | 0.34 (t ≈ 1.2) | ✗ |
+| Positive at 10 bp and at 20 bp | 0.34, 0.23 | ✓ |
+| Above the inverse-vol mix | 0.34 vs −0.01 | ✓ |
+| ≥ median random run at 20 / 50 bp | 0.23 vs −0.05; −0.12 vs −0.66 | ✓ |
+| About equal to random at 5 / 10 bp | 0.40 vs 0.25; 0.34 vs 0.15 | ✓ |
+| τ = 0.01 about equal | 0.31 | ✓ |
+| PCA below after costs | −0.14 | ✓ |
+| Returns-free about equal | 0.39 | ✓ |
+| Exits lower Sharpe by about 0.1 | −30%: 0.35; −100%: 0.65 | ✗ |
+| \|corr with market\| < 0.3 | −0.06 (equal), −0.04 (value) | ✓ |
+
+- Delisting flip: out of sample the exiting firms sit mostly on the short side (0.51% of capital short vs 0.25% long in the −100% run; about even at −30%), so a −100% exit return raises net Sharpe and is not a conservative stress there; −30% is the case to quote.
