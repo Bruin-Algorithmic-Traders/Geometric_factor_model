@@ -102,3 +102,4 @@ Written before the single OOS run (2006–2018); with ~150 OOS months a Sharpe e
 
 ## Diagnostics (exploratory)
 - μ̂'s rank IC across factors fell from 0.068 (t 2.1) in-sample to 0.021 (t 0.6) out of sample, positive in 52% of months; 2006–07 still matched in-sample (0.13) and the drop starts in 2008, so the decay is in the return forecasts rather than in costs or risk control.
+- Sub-periods at 10 bp (gross, turnover and cost from the verified replay): strategy net Sharpe 0.71 / 0.13 / −0.01 / 0.50 for 2006–08 / 2009–11 / 2012–15 / 2016–18 and 0.37 without 2008; with 35–48 months every 95% CI is about ±1.0–1.15, so these are descriptive only. The CSV covers every run; the README shows a short list, and the row without 2008 has no drawdown because joining around a gap is artificial.

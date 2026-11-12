@@ -66,6 +66,11 @@ def stage_d1():
     d1_mu_hat_ic()
 
 
+def stage_d4():
+    from src.evaluation.diagnostics import d4_subperiods
+    d4_subperiods()
+
+
 def stage_oos():
     from src.evaluation.benchmarks import run_oos
     run_oos()
@@ -84,6 +89,7 @@ STAGES = {
     "replay": stage_replay,
     "compare": stage_compare,
     "d1": stage_d1,
+    "d4": stage_d4,
 }
 
 
